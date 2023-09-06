@@ -1,0 +1,133 @@
+---
+title: "perim-analysis"
+author: "Alex Jack"
+date: "2023-07-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, load packages}
+library("rgdal")
+library("raster")
+library("sf")
+library("leafsync")
+library(stars)
+library("dplyr")
+library("ggplot2")
+library("stars")
+library(XML)
+library(spatialEco)
+library(spatstat.random)
+library(landscapemetrics)
+library(maps)
+```
+
+```{r, load data create global constants}
+utm <- st_crs("+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs")
+
+# create three buffer distances
+buffDistSml <- 1000 # 1km
+buffDistMed <- 3000 # 3km
+buffDistLrg <- 5000 # 5km
+
+shp_path <- "./data/chad-jelinek.shp"
+rast_path <- "C:/Users/jackx/Desktop/landcover-tif/clipped-area/clipped-area.tif"
+# read in raster
+landcover<-raster(rast_path)
+#  read in shp file
+farm.full<-st_read(shp_path)
+```
+
+```{r, clean data}
+# grab the extent of our farm
+farm.extent<-extent(farm.full)
+# buffer the extent so that we don't cut off the farm
+# buffer this by twice the largest buffer extent
+farm.extent<-extend(farm.extent, buffDistLrg*2)
+# crop our lc dataset to the buffered extent
+lc.cropped<-crop(landcover, farm.extent) %>% 
+  st_as_stars() %>%
+  st_as_sf()
+farmBuffSml<-farm.full %>%
+  st_buffer(buffDistSml) # buffer by 30m
+
+farmBuffMed<-farm.full %>%
+  st_buffer(buffDistMed) # buffer by 30m
+
+farmBuffLrg<-farm.full %>%
+  st_buffer(buffDistLrg) # buffer by 30m
+
+# subtract the buffered farm from the original shp
+# farm.fenceline.buff<-st_difference(farmBuffSml, farm.full)
+
+# intersect our fencline and our cropped landcover tif
+lcFullSml<-st_intersection(lc.cropped, farmBuffSml)
+lcFullMed<-st_intersection(lc.cropped, farmBuffMed)
+lcFullLrg<-st_intersection(lc.cropped, farmBuffLrg)
+# lcFullSml <- st_intersection(lc.cropped, lcFenclineSml)
+# lcFullMed <- st_intersection(lc.cropped, lcFenclineMed)
+# lcFullLrg <- st_intersection(lc.cropped, lcFenclineLrg)
+# convert back to raster so we can use sampleStratified
+lcFullSmlRast<-st_rasterize(lcFullSml)
+lcFullMedRast<-st_rasterize(lcFullMed)
+lcFullLrgRast<-st_rasterize(lcFullLrg)
+
+```
+
+
+# intersect farm shape
+# create buffers
+```{r, intersect full farm shape}
+
+plot(lc.full)
+
+
+```
+
+
+```{r, create GPX dataframe}
+# let's load up our GPX points
+gpx <- htmlTreeParse(file="./data/S-S09-DEP.GPX", useInternalNodes = TRUE)
+# coords <- xpathSApply(doc=gpx, path="//trkpt", fun=xmlAttrs)
+coords <- xpathSApply(doc = gpx, path = "//wpt", fun = xmlAttrs)
+# need to convert to the same CRS
+
+elevation <- xpathSApply(doc = gpx, path = "//wpt", fun = xmlAttrs)
+# points <- data.frame(lat=as.numeric(coords["lat", ]),
+#                      lon=as.numeric(coords["lon", ]),
+#                      elevation=as.numeric(elevation))
+gpxXML<-xmlParse(file="S-S09-DEP.GPX", useInternalNodes = TRUE)
+gpxPTS <- xmlToDataFrame(gpxXML)
+# make cleaner df
+gpxPTS<- gpxPTS[-1,] # remove first row
+# create df
+gpxDF<-data.frame(name=gpxPTS$name,
+           time=gpxPTS$time,
+           lat=coords[1,],
+           lon=coords[2,],
+           ele=gpxPTS$ele
+           )
+gpxDF$lat <- as.numeric(gpxDF$lat)
+gpxDF$lon <- as.numeric(gpxDF$lon)
+cords <- data.frame(lat=gpxDF$lat, lon=gpxDF$lon)
+st_transform(c(gpxDF$lat, gpxDF$lon), "+proj=latlon", "+init=epsg:32615")
+cords <- spTransform(cords, crs("+datum=WGS84 +init=epsg:32615"))
+coords<- SpatialPoints(cbind(gpxDF$lat,gpxDF$lon), proj4string = CRS("+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs"))
+st_transform(coords, CRS=utm)
+```
+
+```{r, intersect points and rast}
+lonlat<-CRS("+proj=longlat")
+# lcFencelineSF<-st_as_sf.stars(st_as_stars(lc.fenceline.rast$clipped.area))
+# proj4string(lc.fenceline.rast$clipped.area) <- CRS("+proj=longlat +datum=WGS84")
+lcFarmLonLat <- projectRaster(lc.full, crs="+proj=longlat +datum=WGS84")
+lcFarmll <- spTransform(lc.full$clipped.area, lonlat)
+plot(lc.fenceline.ll$clipped.area) + 
+  points(cbind(gpxDF$lon, gpxDF$lat), pch=19, col="black")
+# now can extract landscape values at the points
+clipped.hist<-extract(lcFarmLonLat, cbind(gpxDF$lon, gpxDF$lat))
+hist(clipped.hist)
+```
