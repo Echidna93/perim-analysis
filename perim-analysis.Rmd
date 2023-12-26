@@ -5,8 +5,8 @@ date: "2023-07-31"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup}
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r, load packages}
@@ -15,7 +15,6 @@ library("raster")
 library("sf")
 library("leafsync")
 library(stars)
-library("dplyr")
 library("ggplot2")
 library("stars")
 library(XML)
@@ -23,41 +22,107 @@ library(spatialEco)
 library(spatstat.random)
 library(landscapemetrics)
 library(maps)
+library(reshape2)
+library(reshape)
+library(exifr)
+library(gtools)
+library(dplyr)
 ```
 
 ```{r, load data create global constants}
+# TODO anonymize the farmers, i.e. rename all shps and to correlate with SIDs,
+# restructure file structure
+
 utm <- st_crs("+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs")
 
 # create three buffer distances
 buffDistSml <- 1000 # 1km
 buffDistMed <- 3000 # 3km
 buffDistLrg <- 5000 # 5km
+rastpathMNWI <- "C:/Users/jackx/Desktop/landcover-tif/clipped-area/clipped-area.tif"
 
-shp_path <- "./data/chad-jelinek.shp"
-rast_path <- "C:/Users/jackx/Desktop/landcover-tif/clipped-area/clipped-area.tif"
+camDat<-read.table(
+  "./data/camera-data.csv",
+  sep=",", header=TRUE)
+
+imgDat<-read.table(
+  "./data/image-data.csv",
+  sep=",", header=TRUE)
+
 # read in raster
-landcover<-raster(rast_path)
+landcoverMNWI<-raster(rastpathMNWI)
+landcoverPA <- raster("./perim-shapefiles/nlcd-landcover-PA/nlcd-landcover-PA.tif")
+
+# READ in SHP files for each farm
+S01 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\ken-williams\\Shapefiles\\ken-williams.shp")
+S02 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\mark-volk\\Shapefiles\\mark-volk.shp")
+S03 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\deb-holthaus\\Shapefiles\\deb-holthaus.shp")
+S04<-st_read("C:\\Users\\jackx\\Desktop\\perim-data\\Cervid-Farm\\AntlerAdventureBuffer.shp")
+S05b<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-1.shp") # will need to load up each
+S05a<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-main-2.shp")
+S05c<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-natural.shp")
+S05d<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-small.shp")
+S06<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gary-olson\\Shapefiles\\gary-olson.shp")
+S09 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\chad-jelinek\\Shapefiles\\chad-jelinek.shp")
+S11 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\steve-uchytil\\Shapefiles\\steve-uchytil.shp")
+S12 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\troy-anderson\\Shapefiles\\troy-anderson.shp")
+
+# PA farms
+S07<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gerald-reed\\gerald-reed.shp")
+S10 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\glenn-dice\\glenn-dice.shp")
 #  read in shp file
 farm.full<-st_read(shp_path)
 ```
 
-```{r, clean data}
+
+```{r, create nlcd landcover key}
+# 
+# getStats <- function(landcover){
+#   for(i in 1:nrow(landcover)){
+#     if(landcover[1,]$clipped.area %in% ){
+#       
+#     }
+#   }
+# }
+
+```
+```{r summarize camera data}
+camDatSummary<- camDat %>% group_by(sid) %>% filter(season=='S') %>% filter(!is.na(numImages)) %>% filter(feeder == FALSE) %>% filter(is.na(improperFormat)) %>% summarise(sumimgs = sum(numImages), n = n())
+``` 
+```{r summarise by cid and sid}
+camDatSummaryc <- camDat %>% filter(season=='S') %>% filter(!is.na(numImages)) %>% filter(feeder == FALSE) %>% filter(is.na(improperFormat)) 
+camDatSummaryC <- camDatSummaryc %>% group_by(sid, cid)
+```
+```{r, clean data, echo=FALSE}
+
+camDatSummary$propForest1k <- 0
+camDatSummary$propForest3k <- 0
+camDatSummary$propForest5k <- 0
 # grab the extent of our farm
-farm.extent<-extent(farm.full)
-# buffer the extent so that we don't cut off the farm
-# buffer this by twice the largest buffer extent
-farm.extent<-extend(farm.extent, buffDistLrg*2)
-# crop our lc dataset to the buffered extent
-lc.cropped<-crop(landcover, farm.extent) %>% 
+farms <- c("S01","S02", "S03", "S04", "S05a", "S05b", "S05c", "S05d", "S06", "S07", "S09", "S10", "S11", "S12")
+for(j in 1:length(farms)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    landcover <- landcover_PA
+  }
+  else{
+    landcover <- landcover_MNWI
+  }
+  
+  farm<-st_transform(get(farms[j]), crs(landcover))
+  farm.extent<-extent(farm)
+  farm.extent<-extend(farm.extent, buffDistLrg*2)
+  #landcoverMNWI<-projectExtent(landcoverMNWI, crs(s01))
+  # crop our lc dataset to the buffered extent
+  lc.cropped<-crop(landcover, farm.extent) %>% 
   st_as_stars() %>%
   st_as_sf()
-farmBuffSml<-farm.full %>%
+farmBuffSml<-farm %>%
   st_buffer(buffDistSml) # buffer by 30m
 
-farmBuffMed<-farm.full %>%
+farmBuffMed<-farm %>%
   st_buffer(buffDistMed) # buffer by 30m
 
-farmBuffLrg<-farm.full %>%
+farmBuffLrg<-farm %>%
   st_buffer(buffDistLrg) # buffer by 30m
 
 # subtract the buffered farm from the original shp
@@ -75,17 +140,369 @@ lcFullSmlRast<-st_rasterize(lcFullSml)
 lcFullMedRast<-st_rasterize(lcFullMed)
 lcFullLrgRast<-st_rasterize(lcFullLrg)
 
+propForestSml <- 0
+propForestMed <- 0
+propForestLrg <- 0
+for(i in 1:nrow(lcFullSml)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullSml[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestSml <- propForestSml + 1
+    } 
+  }else{
+    if(lcFullSml[i,]$clipped.area %in% seq(41,43,1)){
+    propForestSml <- propForestSml + 1
+  }   
+    }
+     
+}
+propForestSml <- propForestSml/nrow(lcFullSml)
+
+for(i in 1:nrow(lcFullMed)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullMed[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestMed <- propForestMed + 1
+    } 
+  }else{
+    if(lcFullMed[i,]$clipped.area %in% seq(41,43,1)){
+    propForestMed <- propForestMed + 1
+  }   
+    }
+   
+}
+propForestMed <- propForestMed/nrow(lcFullMed)
+
+for(i in 1:nrow(lcFullLrg)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullLrg[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestLrg <- propForestLrg + 1
+    } 
+  }else{
+    if(lcFullLrg[i,]$clipped.area %in% seq(41,43,1)){
+    propForestLrg <- propForestLrg + 1
+  }   
+    }
+    
+}
+propForestLrg <- propForestLrg/nrow(lcFullLrg)
+
+camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest1k <- propForestSml
+camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest3k <- propForestMed
+camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest5k <- propForestLrg
+}
+
+write.table(camDatSummary, "./data/camDatSummary")
+camDatSummary<-read.table("./data/camDatSummary")
+# buffer the extent so that we don't cut off the farm
+# buffer this by twice the largest buffer extent
+camDatSummary
+```
+
+```{r}
+imgDat <- imgDat %>% dplyr::filter(isPositive==TRUE)
+imgDat$season <- 0
+imgDat$site <- 0
+imgDat$cam <- 0
+imgDat$imgNum <- 0
+#carrion birds
+carrionBirds <- c("European starling", "red-tailed hawk", "great-horned owl", "great horned owl", "great-horned owl", "european starling", "hawk")
+imgDat <- imgDat %>% dplyr::select(imgID, season, site, cam, imgNum, numInds, class, loc, spcs, notes)
+imgDat <- imgDat %>% filter(!(class== "deer" & loc== "I")) # filter out inside deer
+imgDat2 <- imgDat %>% filter((class=="bird" & spcs %in% carrionBirds))
+imgDat <- imgDat %>% filter(!(class=="bird"))
+imgDat <- rbind(imgDat,imgDat2)
+for(i in 1:nrow(imgDat)){
+  if(grepl(".JPG",imgDat[i,]$imgID)){
+      imgID<-strsplit(imgDat[i,]$imgID, "\\.")[[1]][1]
+      uidStringArr <- strsplit(imgID, "-")[[1]]
+  }else{
+      uidStringArr <- strsplit(imgDat[i,]$imgID, "-")[[1]]
+  }
+  imgDat[i,]$season <- uidStringArr[1]
+  imgDat[i,]$site <- uidStringArr[2]
+  imgDat[i,]$cam <- uidStringArr[3]
+  imgDat[i,]$imgNum <- as.integer(uidStringArr[4])
+}
+# split S05 by facility
+for(i in 1:nrow(imgDat)){
+  if((imgDat[i,]$site=='S05') & (imgDat[i,]$cam %in% c("A49","A08","A105","A59","A58","A10"))){
+    imgDat[i,]$site <- 'S05a'
+  }
+  if((imgDat[i,]$site=='S05') & (imgDat[i,]$cam %in% c("A42","A86","A91","A106","A29","A104"))){
+        imgDat[i,]$site <- 'S05b'
+  }
+    if((imgDat[i,]$site=='S05') & (imgDat[i,]$cam %in% c("A07","A32","A36","A107","A108","A13","A95","A131","A111",                  "A67","A38","A99","A05","A40","A22","A94"))){
+      imgDat[i,]$site <- 'S05c'
+    }
+      if((imgDat[i,]$site=='S05') & (imgDat[i,]$cam %in% c("A26","A103","A132","A85","A06","A110"))){
+        imgDat[i,]$site <- 'S05d'
+      }
+}
+
+imgDat <- imgDat[-c(which(imgDat$site=='S05c' & imgDat$cam == "A95")),]
+
+```
+
+```{r, summarise imgDatf}
+imgDat <- imgDat %>% filter(!(spcs %in% c("cottontail", " grey squirrel", "chipmunk", "cow", "13 lined groundsquirrel", "grey squirrel")))
+for(i in 1:nrow(imgDat)){
+  if(imgDat[i,]$class == "meso-carn" || imgDat[i,]$class == "small-mam" || imgDat[i,]$class == "carnivore"){
+    imgDat[i,]$class <- "furbearer"
+  }
+}
+imgDat[c(which(imgDat$site=='S10' & imgDat$cam == "A43" & imgDat$class == "furbearer")),]$spcs <- "groundhog" 
+```
+
+```{r make unique deployment string}
+
+
+metaEncounter <- merge(imgDatSummaryf, camDatSummary, by.x="site", by.y="sid")
+
+```
+
+```{r}
+imgDatSummary <- imgDat %>% dplyr::select(site, cam, class) %>% group_by(site, cam, class) %>% summarise(n = n())
+imgDatSummary$rate <- 0
+for(i in 1:nrow(imgDatSummary)){
+  for(j in 1:nrow(camDatSummaryC)){
+    if(imgDatSummary[i,]$site == camDatSummaryC[j,]$sid &
+       imgDatSummary[i,]$cam == camDatSummaryC[j,]$cid){
+      imgDatSummary[i,]$rate <- imgDatSummary[i,]$n/camDatSummaryC[j,]$numImages
+    }
+  }
+}
+# rate per 100000
+imgDatSummary$rate <- imgDatSummary$rate * 10000
+
+
+imgDatSummaryf <- imgDatSummary %>% group_by(site,class,cam) %>% summarise(sd_rate_class = sd(rate), mean_rate_class = mean(rate), .groups='drop')
+imgDat[c(which(imgDat$site=='S10' & imgDat$cam == "A43" & imgDat$class == "furbearer")),]$spcs <- "groundhog" 
+```
+
+```{r summarise imgs by spcs}
+# clean species tags
+# remove capital letters
+imgDat$spcs <- tolower(imgDat$spcs)
+for(i in 1:nrow(imgDat)){
+  if(imgDat[i,]$spcs == "great horned owl"){
+    imgDat[i,]$spcs <- "great-horned owl"
+  }
+  if(imgDat[i,]$spcs == "raccooon"){
+    imgDat[i,]$spcs <- "raccoon"
+  }
+  if(imgDat[i,]$spcs == "cat"){
+    imgDat[i,]$spcs <- "domestic cat"
+  }
+  if(imgDat[i,]$spcs == "dog"){
+    imgDatf[i,]$spcs <- "domestic dog"
+  }
+  if(imgDat[i,]$class == "deer"){
+    imgDat[i,]$spcs <- "white-tailed deer"
+  }
+  if(imgDat[i,]$class == "hawk"){
+    imgDat[i,]$spcs <- "unknown hawk spp."
+  }
+}
+
+
+imgDatspcs <- imgDat %>% group_by(spcs) %>% summarise(n=n())
+
+imgDatSummaryf <- imgDatSummaryf %>% replace(is.na(.),0) 
+
+
+```
+```{r make summary by class}
+camDatSummaryc <- camDatSummaryc %>% select(season, sid, cid) %>% mutate(deployString = paste0(season, "-", sid, "-", cid))
+
+summaryByClass <- expand.grid(deployString=camDatSummaryc$deployString, class=unique(imgDat$class))
+
+summaryByClass$sid <- ""
+summaryByClass$cid <- ""
+summaryByClass$season <- ""
+summaryByClass$rate <- 0
+
+for(i in 1:nrow(summaryByClass)){
+  summaryByClass[i,]$season <- str_split(summaryByClass[i,]$deployString, "-")[[1]][1]
+  summaryByClass[i,]$sid <- str_split(summaryByClass[i,]$deployString, "-")[[1]][2]
+  summaryByClass[i,]$cid <- str_split(summaryByClass[i,]$deployString, "-")[[1]][3]
+}
+
+summaryByClass$n <- 0
+
+
+#imgDatSummary <- imgDatSummary[-c(which(imgDatSummary$rate == 0)),]
+for(i in 1:nrow(imgDatSummary)){
+  for(j in 1:nrow(summaryByClass)){
+    if(imgDatSummary[i,]$site == summaryByClass[j,]$sid &
+       imgDatSummary[i,]$cam == summaryByClass[j,]$cid & 
+       imgDatSummary[i,]$class == summaryByClass[j,]$class){
+      summaryByClass[j,]$rate <- imgDatSummary[i,]$rate
+    }
+  }
+}
+
+
+```
+
+```{r join metadata and buffer data}
+metaEncounter <- merge(summaryByClass, camDatSummary, by.x="sid", by.y="sid")
+
+for(i in 1:nrow(metaEncounter)){
+  if(metaEncounter[i,]$rate > 1){
+    metaEncounter[i,]$rate <- log(metaEncounter[i,]$rate)
+  }
+}
+```
+
+```{r}
+
+# plot bar graph
+ggplot(metaEncounter, aes(x=sid, y=rate, color=class)) +
+  geom_boxplot() +
+  ylab("Log(Rate Positive/100000 images)") +
+  xlab("site ID") +
+  ggtitle("Encounter Rate per 100,000 images")
+
+# plot pie chart
+ggplot(metaEncounter, aes(x=class, y=rate, color=class)) +
+  geom_boxplot() +
+  ylab("Log(Rate Positive/100000 images)") +
+  xlab("Class") +
+  ggtitle("Encounter Rate per 100,000 images")
+
+ggplot(summaryByClass, aes(x=class, y=n)) +
+  geom_boxplot() +
+  ylab("Log(Rate Positive/100000 images)") +
+  xlab("site ID") +
+  ggtitle("Encounter Rate per 100,000 images")
 ```
 
 
-# intersect farm shape
-# create buffers
-```{r, intersect full farm shape}
-
-plot(lc.full)
+```{r join metadata and encounter data}
 
 
+#TODO change name of this
+# 1km 
+glm.1k<-glm(round(summaryByClass)~propForest1k, data=metaEncounter, family="poisson")
+glm.1k
+# 3 km
+glm.3k<-glm(round(mean_rate_class)~propForest3k, data=metaEncounter, family="poisson")
+glm.3k
+# 5km
+glm.5k<-glm(round(mean_rate_class)~propForest5k, data=metaEncounter, family="poisson")
 ```
+
+```{r separate triggered and field scan imagess}
+
+# use this to sort images into field scans and triggers
+
+base <- "C:/Users/jackx/Desktop/"
+dirs <- list.dirs(base, recursive = FALSE, full.names = FALSE)
+imgs <- c()
+ # dirs <- list.dirs(base, recursive = FALSE, full.names = FALSE) # get all of the ca
+for(i in 1:length(dirs)){
+  posImgs <- list.files(path=paste0(base,"/", dirs[i], "/", "positive-images"), full.names = TRUE, pattern = ".JPG")
+  emptyImgs <- list.files(path=paste0(base,"/", dirs[i], "/", "empty"), full.names=TRUE, pattern=".JPG")
+  imgs<-c(imgs,posImgs, emptyImgs)
+}
+# create a dataframe to hold information about the images
+imgDat<-data.frame(fullPath=imgs)
+imgDat$uid <- 0
+imgDat$season <- 0
+imgDat$site <- 0
+imgDat$cam <- 0
+imgDat$imgNum <- 0
+imgDat$fieldScan <- FALSE
+imgDat$improperDateFormat <- FALSE
+for(i in 1:length(imgs)){
+  uidJPG <- strsplit(imgs[i], "/")[[1]][length(strsplit(imgs[i], "/")[[1]])]
+  uidString<-strsplit(uidJPG, "\\.")[[1]][1]
+  uidStringArr <- strsplit(uidString, "-")[[1]]
+  imgDat[i,]$uid <- uidString
+  imgDat[i,]$season <- uidStringArr[1]
+  imgDat[i,]$site <- uidStringArr[2]
+  imgDat[i,]$cam <- uidStringArr[3]
+  imgDat[i,]$imgNum <- as.integer(uidStringArr[4])
+}
+# grab images, sort them by assignment name
+imgDat<-arrange(imgDat, imgNum)
+imgDat$date <- .POSIXct(character(nrow(imgDat)))
+# fieldScans <- c()
+# triggers <- c()
+# j <- 1
+# k <- 1
+for(i in 1:nrow(imgDat)){
+  # check if the minutes portion is divisible by 5 
+  # if it is we will call it a field scan.
+  # grab current exif
+  exif <-read_exif(imgDat[i,]$fullPath)
+  if("CreateDate" %in% colnames(exif)){
+    imgDat[i,]$date <- as.POSIXct(exif$CreateDate, format="%Y:%m:%d %H:%M:%OS", tz="")
+    # currentDate<-as.POSIXct(exif$CreateDate, format="%Y:%m:%d %H:%M:%OS", tz="")
+    if(as.numeric(format(imgDat[i,]$date,"%M")) %% 5 == 0){
+      imgDat[i,]$fieldScan <- TRUE
+      }
+    }else{
+    imgDat[i,]$improperDateFormat <- TRUE
+  }
+}
+# join imgMetaDat and imgDat
+```
+```{r merge tables}
+names(imgMetaDat) <- c("uuid", "num", "class", "loc", "spcs","note")
+# remove first row
+imgMetaDat <- imgMetaDat[-1,]
+# filter thru all of the inside data
+# imgMetaDat <- data.frame(uid=imgDat$uid,num=imgDat$num, class=imgDat$class,
+#                     loc=imgDat$loc,spcs=imgDat$spcs, note=imgDat$note)
+# subset our data
+imgMetaDat <- subset(imgMetaDat, loc != "I" & class != "deer")
+imgMetaDat <- subset(imgMetaDat, class != "bird")
+imgMetaDatAgg <- as.data.frame(imgDat %>% group_by(uid, class) %>% count())
+for(i in 1:nrow(imgMetaDat)){
+  # strip away the .JPG suffix; if there is one
+  if(grepl(".JPG", imgMetaDat[i,]$uid)){
+    imgMetaDat[i,]$uuid <- strsplit(imgMetaDat[i,]$uuid, "\\.")[[1]][1]
+  } 
+}
+imgMetaDat <- subset(imgMetaDat,imgMetaDat$uuid == imgDat$uid)
+imgDatMain <- merge(imgDat, imgMetaDat, by.x='uid', by.y='uuid')
+```
+
+```{r analyze field scan images, TTE}
+# density approach
+# get the unique camera-site ID from the camera string
+ids<-strsplit(imgs[1], "-")
+camSiteID<- paste0(ids[[1]][1], "-", ids[[1]][2], "-", ids[[1]][3])
+# subset the imgDat csv
+imgSub <- imgDat[which(grepl(camSiteID, imgDat$V1, fixed=TRUE)),]
+imgSub$imgNum <- 0
+for(i in 1:nrow(imgSub)){
+  imgSub[i,]$imgNum <- as.numeric(strsplit(imgSub[i,]$V1, "-")[[1]][4])
+}
+imgSub<-imgSub[order(imgSub$imgNum),]
+TTES <- c()
+k <- 1
+time <- 0
+for(i in 1:length(fieldScans)){
+  for(j in 1:nrow(imgSub)){
+    if(fieldScans[i] == paste0(imgSub[j,]$V1, ".JPG")){
+      TTES[k] <- time
+      k <- k + 1
+      time <- 0
+    }
+  }
+  time = time + 5 
+}
+```
+
+```{r, clean csv}
+
+ggplot(imgDatAgg, aes(sid, log(n))) +
+  geom_point(aes(color=class))
+```
+
+
+
 
 
 ```{r, create GPX dataframe}

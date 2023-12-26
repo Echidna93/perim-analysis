@@ -1,0 +1,44 @@
+```{r}
+library(exifr)
+library(gtools)
+library('rjson')
+library(dplyr)
+base <-"C:/Users/jackx/Desktop"
+site<-"S12"
+cam <- "A112"
+basePath<-paste0(base, "/", site, "/", cam)
+imgs<-list.files(basePath, pattern=".JPG", full.names=FALSE)
+startDate <- as.POSIXct(imgs[1], format="%Y:%m:%d %H:%M:%OS", tz="")
+# create a dataframe to hold information about the images
+imgDat<-data.frame(name=imgs)
+imgDat$improperDateFormate <- FALSE
+imgDat$date <- .POSIXct(character(nrow(imgDat)))
+if(!dir.exists(paste0(basePath, "/","outOfSample")) &
+   !dir.exists(paste0(basePath, "/","inSample"))){
+dir.create(paste0(basePath, "/", "outOfSample"))
+dir.create(paste0(basePath, "/", "inSample"))
+}
+inSamplePath<-paste0(basePath, "/", "inSample")
+outOfSamplePath<-paste0(basePath, "/", "outOfSample")
+# create a dataframe of the dates
+for(i in 1:nrow(imgDat)){
+  exif <-read_exif(paste0(basePath, "/", imgDat[i,]$name))
+  if("CreateDate" %in% colnames(exif)){
+    imgDat[i,]$date <- as.POSIXct(exif$CreateDate, format="%Y:%m:%d %H:%M:%OS")
+    # currentDate<-as.POSIXct(exif$CreateDate, format="%Y:%m:%d %H:%M:%OS", tz="")
+    }else{
+    imgDat[i,]$improperDateFormat <- TRUE
+  }
+}
+imgDatOrdrd<-imgDat[order(imgDat$date),]
+startDate <- imgDatOrdrd[10,]$date
+# join imgMetaDat and imgDat
+for(i in 1:nrow(imgDatOrdrd)){
+    if(abs(difftime(strptime(startDate, "%Y-%m-%d"), strptime(imgDatOrdrd[i,]$date, "%Y-%m-%d"), units='days')) <= 14){
+        file.copy(paste0(basePath, "/", imgDatOrdrd[i,]$name),
+                paste0(inSamplePath, "/", imgDatOrdrd[i,]$name))
+        file.remove(paste0(basePath,"/", imgDatOrdrd[i,]$name)) # now we can delete so we're not leaving behind a ton of copies
+      }
+    }
+
+```
