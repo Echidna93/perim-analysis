@@ -1,0 +1,46 @@
+---
+title: "megadetector-error"
+output: html_document
+date: "2024-01-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages}
+library(stringr)
+library(ggplot2)
+```
+
+```{r read in csv}
+emptyError<-read.csv("./data/empty-sampling-summary.csv")
+emptyError
+```
+
+```{r}
+for(i in 1:nrow(emptyError)){
+  for(j in 1:ncol(emptyError)){
+    if(is.na(emptyError[i,j])){
+      emptyError[i,j] <- 0 
+    }   
+  }
+}
+names(emptyError) <- str_replace(names(emptyError), "\\.", "")
+
+str_split()
+for(i in 1:nrow(emptyError)){
+  emptyError[i,]$site <- str_split(emptyError[i,]$SID, "-")[[1]][2]  
+}
+
+```
+
+```{r}
+
+ggplot(emptyError, aes(x=)) +
+  geom_bar(show.legend = FALSE) +
+  ylab("Log(Rate Positive/10000 images)") +
+  xlab("site ID") +
+  ggtitle("Encounter Rate per 10,000 images")
+
+```

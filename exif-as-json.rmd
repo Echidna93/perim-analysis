@@ -1,0 +1,32 @@
+```{r}
+library(exifr)
+library(gtools)
+library('rjson')
+options(warn=2, error=recover)
+base<-"C:/Users/jackx/Desktop"
+outPath <-"C:/Users/jackx/Desktop/"
+site<-"S12"
+cams<-list.dirs(paste0(base, "/", site), recursive=FALSE, full.names=FALSE) 
+k<-1
+#print(paste0(base, "/", site, "/", cams[1], "/","empty")) 
+# for(i in 1:length(cams)){
+# 
+	emptyPath <-paste0(base, "/", site, "/", cams[1], "/","empty")
+	posPath <- paste0(base, "/", site, "/", cams[1], "/","positive-images")
+	posImages<-list.files(posPath, pattern=".JPG", full.names=TRUE)
+	emptyImages <-list.files(emptyPath, pattern=".JPG", full.names=TRUE)
+	#print(posImages)
+	imgs<-c(posImages, emptyImages)
+	exif <- c()
+	#print(imgs) 
+	#print(imgs[j])
+	k = 1
+	for(i in 1:100){
+	exif[k]<-toJSON(read_exif(imgs[[i]], tags=c("FileName","CreateDate")))
+	k = k +1
+	}
+	exifJSON<-toJSON(exif)
+	write(exifJSON, paste0(outPath,"/", "test-", site))
+	read
+# now we have a big old thing of exifs
+```

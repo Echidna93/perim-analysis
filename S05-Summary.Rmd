@@ -1,0 +1,29 @@
+---
+title: "S05-Summary"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-01-13"
+---
+
+```{r load packages, echo=FALSE}
+
+suppressPackageStartupMessages({
+    library(ggplot2)
+    library(dplyr)
+})
+
+
+```
+```{r read in data, echo=FALSE}
+imgDatspcsMeta<-read.table("./S05-spcs-meta")
+```
+```{r summarise imgs by spcs,echo=FALSE}
+ggplot(imgDatspcsMeta, aes(x=spcs)) +
+  geom_bar() +
+  ggtitle(label="Occurences of Species on Fier Farm")+
+    theme(plot.title = element_text(hjust = 0.5), panel.background = element_blank(), axis.line=element_line(color="black", size = 0.5))
+imgDatspcsMeta %>% group_by(spcs)%>% select(spcs) %>% summarise(n=n()) 
+
+```
+We collected 206,466 images. I counted any sighting of different species as unique observations and any sightings of the same species after a period of 30 minutes as unique observations. Of 42 unique observations of White-tailed deer I found that 5 of them had the potential to be instances where direct contact between wild deer and your farmed deer occurred. Due to objects obstructing my viewshed of my cameras I was unable to determine if contact occurred. 

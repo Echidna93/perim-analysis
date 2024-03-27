@@ -1,0 +1,164 @@
+---
+title: "Untitled"
+author: "alex jack"
+date: "2024-02-02"
+output: html_document
+---
+```{r, load packages}
+library("rgdal")
+library("raster")
+library("sf")
+library("leafsync")
+library(stars)
+library("ggplot2")
+library("stars")
+library(XML)
+library(spatialEco)
+library(spatstat.random)
+library(landscapemetrics)
+library(maps)
+library(reshape2)
+library(reshape)
+library(exifr)
+library(gtools)
+library(dplyr)
+library(jsonlite)
+library(stringr)
+library(scales)
+library(ggrepel)
+library(landscapemetrics)
+```
+```{r, load data create global constants}
+
+imgDatf<-read.table(
+  "./data/imgDatf.csv",
+  sep=",", header=TRUE)
+imgDatw<-read.table(
+  "./data/imgDatw.csv",
+  sep=",", header=TRUE)
+imgDats<-read.table(
+  "./data/imgDats.csv",
+  sep=",", header=TRUE)
+imgDats <- imgDatf[,-c(which(colnames(imgDatf)=="deerSex"))]
+imgDat<-imgDats
+```
+```{r helper functions}
+splitJPGS <- function(dataframe, uidName){
+  for(i in 1:nrow(dataframe)){
+  # strip away the .JPG suffix; if there is one
+  if(grepl(".JPG", dataframe[i,uidName])){
+    dataframe[i,uidName] <- strsplit(dataframe[i,uidName], "\\.")[[1]][1]
+  }
+  }
+  return(dataframe)
+}
+```
+
+```{r}
+imgDat$imgID <- toupper(imgDat$imgID)
+imgDat <- imgDat %>% filter(grepl("S05",imgID))
+
+imgDat$season <- 0
+imgDat$site <- 0
+imgDat$cam <- 0
+imgDat$imgNum <- 0
+imgDat$num <- 0
+#imgDat <- imgDat %>% dplyr::select(imgID, season, site, cam, imgNum, numInds, class, loc, spcs, notes)
+imgDat <- imgDat %>% filter(!(class== "deer" & loc== "I")) %>% filter(class!="bird")
+for(i in 1:nrow(imgDat)){
+  if(grepl(".JPG",imgDat[i,]$imgID)){
+      imgID<-strsplit(imgDat[i,]$imgID, "\\.")[[1]][1]
+      uidStringArr <- strsplit(imgID, "-")[[1]]
+  }else{
+      uidStringArr <- strsplit(imgDat[i,]$imgID, "-")[[1]]
+  }
+  imgDat[i,]$season <- uidStringArr[1]
+  imgDat[i,]$site <- uidStringArr[2]
+  imgDat[i,]$cam <- uidStringArr[3]
+  imgDat[i,]$imgNum <- as.integer(uidStringArr[4])
+}
+
+```
+
+```{r, summarise imgDatf}
+
+imgDat$spcs <- tolower(imgDat$spcs)
+for(i in 1:nrow(imgDat)){
+  if(imgDat[i,]$spcs == "great horned owl"){
+    imgDat[i,]$spcs <- "great-horned owl"
+  }
+  if(imgDat[i,]$spcs == "raccooon"){
+    imgDat[i,]$spcs <- "raccoon"
+  }
+  if(imgDat[i,]$spcs == "cat"){
+    imgDat[i,]$spcs <- "domestic cat"
+  }
+  if(imgDat[i,]$spcs == "dog"){
+    imgDatf[i,]$spcs <- "domestic dog"
+  }
+  if(imgDat[i,]$class == "deer"){
+    imgDat[i,]$spcs <- "white-tailed deer"
+  }
+  if(imgDat[i,]$class == "hawk"){
+    imgDat[i,]$spcs <- "unknown hawk spp."
+  }
+}
+
+
+imgDat <- imgDat %>% filter(!(spcs %in% c("cottontail", " grey squirrel", "chipmunk", "cow", "13 lined groundsquirrel", "grey squirrel")))
+for(i in 1:nrow(imgDat)){
+  if(imgDat[i,]$class == "meso-carn" || imgDat[i,]$class == "small-mam" || imgDat[i,]$class == "carnivore"){
+    imgDat[i,]$class <- "furbearer"
+  }
+}
+
+imgDat$deployString = paste0(imgDat$season, "-", imgDat$site, "-", imgDat$cam)
+
+imgDatIndEnct <- imgDat[which(imgDat$sequenceID != 0),]
+
+
+```{r setup, include=FALSE}
+# clean species tags
+# remove capital letters
+imgDatspcs <- imgDatIndEnct %>% filter(!duplicated(deployString, sequenceID))
+imgDatspcsGrouped <- imgDatIndEnct %>% mutate(deployStringSequence = paste0(deployString, "-", sequenceID))
+imgDatspcsGroupedU <- data.frame(matrix(NA, ncol=ncol(imgDatspcsGrouped), nrow=0))
+names(imgDatspcsGroupedU) <- names(imgDatspcsGrouped)
+deployStringSequences <- unique(imgDatspcsGrouped$deployStringSequence)
+for(i in 1:length(deployStringSequences)){
+ sequence <- imgDatspcsGrouped[which(imgDatspcsGrouped$deployStringSequence == deployStringSequences[i]),]
+ if(any(sequence$spcs != "white-tailed deer")){
+   imgDatspcsGroupedU[i,] <- sequence[1,]
+   #imgDatspcsGroupedU[i,]$numInds <- mean(sequence$numInds, na.rm=TRUE)
+
+ }
+ if(any(sequence$spcs == "white-tailed deer")){
+    if(all(sequence$contactPossible == FALSE) & all(sequence$contactSeen == FALSE)){
+      imgDatspcsGroupedU[i,] <- sequence[1,]
+      #print(sequence[1,])
+      # if(!is.na(sequence$numInds)){
+      #   
+      # }
+      # imgDatspcsGrouped[i,]$numInds <- mean(sequence$numInds, na.rm=TRUE)
+    }
+     if(any(sequence$contactPossible == TRUE) & all(sequence$contactSeen == FALSE)){
+       contact <- sequence[which(sequence$contactPossible==TRUE),]
+       imgDatspcsGroupedU[i,] <- contact[1,] # grab the first entry
+       #print(contact[1,])
+       #imgDatspcsGroupedU[i,]$numInds <- mean(sequence$numInds, na.rm=TRUE)
+     }
+   if(any(sequence$contactSeen == TRUE)){
+       contact <- sequence[which(sequence$contactPossible==TRUE),]
+       imgDatspcsGroupedU[i,] <- contact[1,] # grab the first entry
+       #imgDatspcsGroupedU[i,]$numInds <- mean(sequence$numInds, na.rm=TRUE)
+      }
+ }
+}
+imgDatspcsMeta <- imgDatspcsGroupedU
+imgDatspcsMeta <- imgDatspcsMeta %>% dplyr::select(spcs)
+write.table(imgDatspcsGroupedU, "./S05-unique-grouped")
+write.table(imgDat, "./S05-complete")
+write.table(imgDatIndEnct, "./S05-independent-seq")
+write.table(imgDatspcsMeta, "./S05-spcs-meta")
+
+```
