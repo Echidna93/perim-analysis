@@ -43,6 +43,11 @@ library(car)
 library(effects)
 library(gt)
 library(DataEditR)
+library(pscl)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(webshot)
 ```
 
 ```{r, load data create global constants}
@@ -86,6 +91,11 @@ roadDensDat$sid<-toupper(roadDensDat$sid)
 lsmDat <- read.table("./data/lsmDat")
 sites<-read.table("./data/siteS05split") # df to hold all timestamps of all images
 
+# final version of imgDat
+# includes inSample Period; contains all sites
+# duplicated values
+imgDat <- read.table("./data/imgDatFinal")
+
 # read in raster
 landcoverMNWI<-raster(rastpathMNWI)
 landcoverPA <- raster("./perim-shapefiles/nlcd-landcover-PA/nlcd-landcover-PA.tif")
@@ -110,19 +120,6 @@ S12 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\tro
 # PA farms
 S07<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gerald-reed\\gerald-reed.shp")
 S10 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\glenn-dice\\glenn-dice.shp")
-
-# ROAD shps
-S01.rd <- st_read("./data/mn_road/S01/tl_2023_27145_roads.shp")
-S02.rd <- st_read("./data/mn_road/S03/tl_2023_27097_roads.shp")
-S03.rd <- st_read("./data/mn_road/S03/tl_2023_27097_roads.shp")
-S04.rd <- st_read("./data/wi_road/S04/tl_2023_55109_roads.shp")
-S05.rd <- st_read("./data/mn_road/S05/tl_2021_27081_roads.shp")
-S06.rd <- st_read("./data/mn_road/S06/tl_2023_27045_roads.shp")
-S07.rd <- st_read("./data/pa_road/S07/tl_2023_42081_roads.shp")
-S09.rd <- st_read("./data/wi_road/S09/tl_2022_55023_roads.shp")
-S10.rd <- st_read("./data/pa_road/S10/tl_2023_42055_roads.shp")
-S11.rd <- st_read("./data/mn_road/S11/tl_2023_27067_roads.shp")
-S12.rd <- st_read("./data/mn_road/S12/tl_2023_27139_roads.shp")
 ```
 ```{r, create dataframe of areas}
 farms <- c("S01","S02", "S03", "S04", "S05a", "S05b", "S05c", "S05d", "S06", "S07", "S09", "S10", "S11", "S12")
@@ -168,12 +165,10 @@ splitJPGS <- function(dataframe, uidName){
 # subset time to two weeks
 subsetTime<-function(deployDat, samplePeriod=14, deployDateCol, imgDateCol){
   for(i in 1:nrow(deployDat)){
-    print(i)
     deployDateColNum<-which(colnames(deployDat)==deployDateCol)
     imgDateColNum<-which(colnames(deployDat)==imgDateCol)
     # to account for differences in date format
-    if(all(deployDat$improperDateFormat==FALSE)){
-    if(!is.na(deployDat[i,imgDateColNum]) || !is.na(deployDat[i,deployDateColNum])){
+    if(!is.na(deployDat[i,imgDateColNum])  & !is.na(deployDat[i,deployDateColNum])){
     if(!is.na(strptime(deployDat[i,imgDateColNum], "%Y-%m-%d"))){
       imgDate <- strptime(deployDat[i,imgDateColNum], "%Y-%m-%d")
     }
@@ -183,11 +178,34 @@ subsetTime<-function(deployDat, samplePeriod=14, deployDateCol, imgDateCol){
     if(abs(difftime(strptime(deployDat[i,deployDateColNum], "%Y-%m-%d", tz = ""), imgDate, units='days', tz = "")) <= 14){
       deployDat[i,]$inSamplePeriod <- TRUE
       }
+    }else{
+      deployDat[i,]$inSamplePeriod <- NA
     }
+  }
+return(deployDat)desi
+}
+subsetTimeHard<-function(deployDat, samplePeriod=14, deployDate, imgDateCol){
+  for(i in 1:nrow(deployDat)){
+    #deployDateColNum<-which(colnames(deployDat)==deployDateCol)
+    imgDateColNum<-which(colnames(deployDat)==imgDateCol)
+    # to account for differences in date format
+    if(!is.na(deployDate)  & !is.na(deployDate)){
+    if(!is.na(strptime(deployDat[i,imgDateColNum], "%Y-%m-%d"))){
+      imgDate <- strptime(deployDat[i,imgDateColNum], "%Y-%m-%d")
+    }
+    else{
+      imgDate <- strptime(deployDat[i,imgDateColNum], "%Y:%m:%d")
+    }
+    if(abs(difftime(strptime(deployDate, "%Y-%m-%d", tz = ""), imgDate, units='days', tz = "")) <= 14){
+      deployDat[i,]$inSamplePeriod <- TRUE
+      }
+    }else{
+      deployDat[i,]$inSamplePeriod <- NA
     }
   }
 return(deployDat)
 }
+
 ```
 
 
@@ -323,97 +341,6 @@ lAIFarmDat[which(lAIFarmDat$sid==farms[j]),]$ai5k<-lsm_l_ai(lcFullLrgRast$clippe
 
 
 ```
-```{r calculate per site road density}
-roadDensDat <- data.frame(sid=farms, roadDens1km=0, roadDens3km=0, roadDens5km=0)
-sf_use_s2(TRUE)
-for(j in 1:length(farms)){  
-
-  if(grepl('S05', farms[j])){
-    road.shp <- get(paste0("S05", ".", "rd"))
-  }else{
-    road.shp <- get(paste0(farms[j], ".", "rd"))
-  }
-  farm<-st_transform(get(farms[j]), crs(road.shp)) # transform
-  farm<-st_make_valid(farm) # make sure that all edges are correct; quick check
-  farmBuffSml<-farm %>%
-    st_buffer(buffDistSml)
-  
-  farmBuffMed<-farm %>%
-    st_buffer(buffDistMed) # buffer by 30m
-  
-  farmBuffLrg<-farm %>%
-    st_buffer(buffDistLrg) # buffer by 30m
-  
-  # subtract the buffered farm from the original shp
-  # farm.fenceline.buff<-st_difference(farmBuffSml, farm.full)
-  
-  # intersect our fencline and our cropped landcover tif
-
-  lcFullSml<-st_intersection(road.shp, farmBuffSml)
-  lcFullMed<-st_intersection(road.shp, farmBuffMed)
-  lcFullLrg<-st_intersection(road.shp, farmBuffLrg)
-  roadDensDat[j,]$roadDens1km<-sum(st_length(lcFullSml$geometry))/st_area(farmBuffSml)
-  roadDensDat[j,]$roadDens3km<-sum(st_length(lcFullMed$geometry))/st_area(farmBuffMed)
-  roadDensDat[j,]$roadDens5km<-sum(st_length(lcFullLrg$geometry))/st_area(farmBuffLrg)
-}
-write.table(roadDensDat,"./data/roadDensDat")
-```
-```{r get prop forested}
-
-for(i in 1:nrow(lcFullSml)){
-  if(farms[j] == "S07" || farms[j] == "S10"){
-    if(lcFullSml[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-      propForestSml <- propForestSml + 1
-    } 
-  }else{
-    if(lcFullSml[i,]$clipped.area %in% seq(41,43,1)){
-    propForestSml <- propForestSml + 1
-  }   
-    }
-     
-}
-propForestSml <- propForestSml/nrow(lcFullSml)
-
-for(i in 1:nrow(lcFullMed)){
-  if(farms[j] == "S07" || farms[j] == "S10"){
-    if(lcFullMed[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-      propForestMed <- propForestMed + 1
-    } 
-  }else{
-    if(lcFullMed[i,]$clipped.area %in% seq(41,43,1)){
-    propForestMed <- propForestMed + 1
-  }   
-    }
-   
-}
-propForestMed <- propForestMed/nrow(lcFullMed)
-
-for(i in 1:nrow(lcFullLrg)){
-  if(farms[j] == "S07" || farms[j] == "S10"){
-    if(lcFullLrg[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-      propForestLrg <- propForestLrg + 1
-    } 
-  }else{
-    if(lcFullLrg[i,]$clipped.area %in% seq(41,43,1)){
-    propForestLrg <- propForestLrg + 1
-  }   
-    }
-    
-}
-propForestLrg <- propForestLrg/nrow(lcFullLrg)
-
-propForestDat[which(propForestDat$sid == farms[j]),]$propForest1k <- propForestSml
-propForestDat[which(propForestDat$sid == farms[j]),]$propForest3k <- propForestMed
-propForestDat[which(propForestDat$sid == farms[j]),]$propForest5k <- propForestLrg
-}
-
-# write.table(propForestDat, "./data/propForestDat")
-# propForestDat<-read.table("./data/propForestDat")
-# buffer the extent so that we don't cut off the farm
-# buffer this by twice the largest buffer extent
-
-```
-
 ```{r}
 imgDat$season <- ""
 imgDat$site <- ""
@@ -425,7 +352,7 @@ imgDat$num <- 0
 
 imgDat <- imgDat %>% mutate(class=if_else(spcs=="possum", "furbearer", class))
 imgDat <- imgDat %>% mutate(class=if_else(spcs=="striped skunk", "furbearer", class))
-imgDat <- imgDat %>% filter(!(spcs %in% c("cottontail", " grey squirrel",  "grey squirrel"))) %>% mutate(spcs = str_replace_all(spcs, c("great horned owl" = "great-horned owl", "raccooon" = "raccoon", "hawk"="unknown hawk sp.", "grey-squirrel"="squirrel", "grey squirrrel" = "squirrel","striped skunk" = "skunk", "grey squirrel" = "squirrel", "groundhog; cottontail" = "groundhog", "fox squirrrel"="squirrel", "fox squirrel"="squirrel", "13 lined groundsquirrel" = "squirrel", "sp. unknown" = "sp unknown"))) %>% filter(!(spcs%in% c("squirrel", "cottontail", "great-horned owl", "unkown hawk sp.", "chipmunk", "groundhog", "cow", "sp unkown"="sp unknown"))) %>% filter(!(class== "deer" & loc== "I")) %>% filter(class!="bird") %>%  filter(class!="small-mam")
+imgDat <- imgDat %>% filter(!(spcs %in% c("cottontail", " grey squirrel",  "grey squirrel"))) %>% mutate(spcs = str_replace_all(spcs, c("great horned owl" = "great-horned owl", "raccooon" = "raccoon", "hawk"="unknown hawk sp.", "grey-squirrel"="squirrel", "grey squirrrel" = "squirrel","striped skunk" = "skunk", "grey squirrel" = "squirrel", "groundhog; cottontail" = "groundhog", "fox squirrrel"="squirrel", "fox squirrel"="squirrel", "13 lined groundsquirrel" = "squirrel", "sp. unknown" = "sp unknown","sp unkown"="sp unknown"))) %>% filter(!(spcs%in% c("squirrel", "cottontail", "great-horned owl", "unkown hawk sp.", "chipmunk", "groundhog", "cow"))) %>% filter(!(class== "deer" & loc== "I")) %>% filter(class!="bird") %>%  filter(class!="small-mam")
 imgDat <- imgDat %>% mutate(spcs = str_replace_all(spcs, c("bobcat" = "bob"))) %>% filter(spcs != "domestic cat") %>% filter(spcs != "cat") %>% filter(spcs != "dog") %>% filter(spcs != "domestic dog") 
 
 # standardize naming conventions
@@ -437,7 +364,7 @@ imgDat$spcs <- tolower(imgDat$spcs)
 
 # standardize vague ID class 
 imgDat[c(which(imgDat$spcs=="" & imgDat$class!="")),]$spcs <- "sp unknown"
-
+imgDat <- imgDat %>% filter(spcs != "")
 # strip site, camera and season from unique imgID
 for(i in 1:nrow(imgDat)){
   if(grepl(".JPG",imgDat[i,]$imgID)){
@@ -487,39 +414,57 @@ sites$deployString <- paste0(sites$season, "-", sites$site, "-", sites$cam)
 imgDat$deployString <- toupper(imgDat$deployString)
 camDat$deployString <- paste0(toupper(camDat$season),"-",toupper(camDat$sid), "-",toupper(camDat$cid))
 
-imgDat <- merge(imgDat, camDat, all.X=TRUE, all.y=TRUE, on.x=c('deployString'), on.y=c('deployString'))
+imgDatm <- merge(imgDatm, camDat, all.X=TRUE, on.x=c('deployString'), on.y=c('deployString'))
 
 
 imgDat <- splitJPGS(imgDat, "imgID")
 imgDat$imgID <- toupper(imgDat$imgID)
-feeders <- imgDat %>% filter(feeder==TRUE)
+feeders <- imgDatm %>% filter(feeder==TRUE)
 feeders <- camDat[which(camDat$feeder==TRUE),]
 feeders$deployString <- paste0(feeders$season,"-", feeders$sid, "-",feeders$cid)
 feederDeploys <- unique(feeders$deployString)
-imgDat <- imgDat %>% filter(feeder==FALSE)
+imgDatm <- imgDatm %>% filter(feeder==FALSE)
 imgDat$uSeq <- paste0(imgDat$deployString,"-", imgDat$sequenceID)
 imgDat <- imgDat %>% filter(sequenceID !=0)
-write.table(imgDat, './data/imgDatClean')
-write.table(feeders,'./data/feeders')
+write.table(imgDatm, './data/imgDatClean')
+write.table(feeders,'./data/feeders') # list of feeders
 read.table("./data/feeders")
 # merge with sites
-sites$season<-toupper(sites$season)
-sites$site<-toupper(sites$site)
-sites$cam<-toupper(sites$cam)
-sites$imgID <- paste0(sites$season, "-", sites$site, "-", sites$cam, "-", sites$imgNum)
+sites.m$season<-toupper(sites.m$season)
+sites.m$site<-toupper(sites.m$site)
+sites.m$cam<-toupper(sites.m$cam)
+sites.m$imgID <- paste0(sites.m$season, "-", sites.m$site, "-", sites.m$cam, "-", sites.m$imgNum)
 imgDat2 <- imgDat %>% filter(!is.na(numInds))
-imgDatm <- merge(sites, imgDat, on.x="imgID", on.y="imgID", all.y=TRUE)
+# first I need to change the "date" column to a string
+sites.m <- sites.m %>% mutate(date.chr = as.character(date))
+imgDat$imgID <- toupper(imgDat$imgID)
+imgDatm <- merge(sites.m, imgDat, on.x="imgID", on.y="imgID", all.y=TRUE)
 ```
 
 ```{r, summarise by class and species}
 imgDatUSeq <- splitJPGS(imgDatUSeq, "imsgID") # split off any 
 imgDatUSeq$useq <- paste0(imgDatUSeq$deployString, "-", imgDatUSeq$sequenceID)
 imgDatUSeqplotor$useq <- paste0(imgDatUSeqplotor$deployString, "-", imgDatUSeqplotor$sequenceID)
-imgDatUSeq <- imgDat %>% filter(!duplicated(uSeq))
+imgDatUSeq <- imgDatm %>% filter(!duplicated(useq))
 imgDatUSeq <- imgDatUSeq %>% filter(!duplicated(imgDatUSeq$useq))
 
+imgDatUSeqDup <- imgDatUSeq[-c(duplicated(imgDatUSeq)),] # get rid of duplicate row
+
+imgDatUSeqPivotSummer <- imgDatUSeq %>% group_by(site, spcs) %>% filter(season=="S") %>% summarise(n=n()) %>% pivot_wider(id_cols = site, values_from = n, names_from=spcs, values_fill=0)
+
+
+
+# this generates a table for the sightings by species on each site
 imgDatUSeqSummary <- imgDatUSeq %>% group_by(class) %>% summarise(n=n())
-imgDatUSeqSummarySpcs <- imgDatUSeq  %>% group_by(spcs) %>% summarise(n = n(), prop=n()/nrow(imgDatUSeq))
+imgDatUSeqSummarySpcsBySite <- imgDatUSeq  %>% group_by(spcs) %>% summarise(n = n(), prop=n()/nrow(imgDatUSeq))
+
+#write.table(imgDatUSeqPivotSummer, "./data/speciesSummaryBySite", sep=",")
+
+# remove the splotch that we thought might be a bear
+imgDatUSeq <- imgDatUSeq[-c(which(imgDatUSeq$uid=="s-S10-A68-3317")),]
+
+imgDatUSeqSpcsT<-imgDatUSeq %>% group_by(spcs) %>% summarise(n=n()) %>% mutate(percent=n/nrow(imgDatUSeq))
+write.table(imgDatUSeqSpcsT, "./data/imgDatUSeqSpcsT", sep=",") # for total species for all seaons
 
 print(paste0("Total independent observations where deer were present ", imgDatUSeqSummary[1,]$n))
 print(paste0("Total independent observations where other furbearers were present ", imgDatUSeqSummarySpcs[which(imgDatUSeqSummarySpcs$spcs=="raccoon"),]$n/imgDatUSeqSummary[which(imgDatUSeqSummary$class=="furbearer"),]$n))
@@ -552,6 +497,21 @@ plot<-ggplot(imgDatspcs2, aes(x="",y = per,fill=spcs, label=per)) +
   plot
 ```
 
+```{r rectify bad datetime}
+
+deployStrings <- unique(S01$deployString)
+for(i in 1:length(deployStrings)){
+  deploy<-S01 %>% filter(deployString==deployStrings[i]) # filter by the deployment
+  S01 <- S01 %>% filter(deployString!=deployStrings[i]) # remove them
+  ordrdDeploy <- deploy %>% arrange(date)
+  deployDate <- ordrdDeploy[1,]$date
+  deploy<-subsetTimeHard(deploy,deployDate=deployDate,
+                     imgDateCol="date")
+  S01 <- rbind(S01, deploy)
+}
+
+```
+
 ```{r investigate deer images}
 
 # note remove images for S-S05a-A10-2321; S-S02-A109-1870; S-S02-AO7-548
@@ -562,10 +522,10 @@ sites$season <- toupper(sites$season)
 sites$uid <- paste0(sites$season, "-", sites$site, "-", sites$cam, "-", sites$imgNum)
 sites$uid <- as.character(sites$uid)
 imgDatUSeq$imgIDsplit <- as.character(imgDatUSeq$imgIDsplit)
-sites$uid <- toupper(sites$uid)
+sites$deployString <- toupper(sites$deployString)
 sites$imgIDSplit <- sites$uid
 imgDat$useq <- paste0(imgDat$deployString, "-", imgDat$sequenceID)
-imgDatDeer <- imgDat %>% filter(class=="deer" & deerOnBothSides==TRUE) %>% filter(inSamplePeriod==TRUE)
+imgDatDeer <- imgDat %>% filter(class=="deer" & deerOnBothSides==TRUE)
 imgDatDeer <- merge(imgDatDeer, sitesSum, on.x="deployString.x", on.y="deployString", all.x=TRUE)
 imgDatDeerContactPossible <- imgDatDeer %>% filter(contactPossible==TRUE & contactSeen==FALSE)
 imgDatDeerContactSeen <- imgDatDeer %>% filter(contactSeen==TRUE) 
@@ -583,10 +543,11 @@ sitesSum <- sites %>% group_by(deployString,season) %>% summarise(n=n())
 #write.table(sitesSum, "./data/numImagesSummary")
 deployStrings <- unique(sites.m$deployString)
 sites.m <- sites.m %>% filter(deployString != "S-S03-A04")
+sites.m$deployDate <- if_else(sites.m$deployDate=="",NA,sites.m$deployDate)
 sites.m$inSamplePeriod <- FALSE
 for(i in 1:length(deployStrings)){
   deploy<-sites.m %>% filter(deployString==deployStrings[i]) # filter by the deployment
-  sites.m <- sites.m %>% filter(deployString!=deployStrings[i]) # remove them
+  imgDatm <- sites.m %>% filter(deployString!=deployStrings[i]) # remove them
   deploy<-subsetTime(deploy,deployDateCol="deployDate",
                      imgDateCol="date")
   sites.m <- rbind(sites.m, deploy) # rbind the time subset dataframe
@@ -620,7 +581,7 @@ length(which(imgDatDeerContactSeen$season.x=='S'))
 length(which(imgDatDeerContactSeen$season.x=='W'))
 ```
 ```{r summarize field scans}
-imgDatUSeq$imgIDsplit <- paste0(imgDatUSeq$season, "-", imgDatUSeq$site, "-", imgDatUSeq$cam, "-", imgDatUSeq$imgNum)
+imgDat$imgID <- paste0(imgDat$season, "-", imgDat$site, "-", imgDat$cam, "-", imgDat$imgNum)
 sites$site <- toupper(sites$site)
 sites$season <- toupper(sites$season)
 sites$uid <- paste0(sites$season, "-", sites$site, "-", sites$cam, "-", sites$imgNum)
@@ -658,8 +619,8 @@ for(i in 1:length(deployStrings)){
   imgDat <- rbind(imgDat, deploy) # rbind the time subset dataframe
 }
 
-
-
+sites.m <- sites.m[-c(which(sites.m$site=='S01' & sites.m$season=='S')),]
+sites.m <- rbind(sites.m, S01)
 # imgDat$encounterID<-0
 # createEncounterID<-function(deployDat, encounterCutOff){
 #   # first get deployDat in chronological order
@@ -696,56 +657,27 @@ for(i in 1:length(deployStrings)){
 
 # filter any sequences which don't have corresponding entries from the
 mergedImgUSeq <- imgDatUSeq
-mergedImgUSeq$useq <- paste0(mergedImgUSeq$deployString, "-", mergedImgUSeq$sequenceID)
-mergedImgUSeq <- mergedImgUSeq %>% filter(!duplicated(useq))
+imgDatm$useq <- paste0(imgDatm$deployString, "-", imgDatm$sequenceID)
+mergedImgUSeq <- imgDatm %>% filter(!duplicated(useq))
 mergedImgUSeq <- mergedImgDat %>% filter(!is.na(sequenceID))
 mergedImgUSeq$site <- toupper(mergedImgUSeq$site)
 mergedImgUSeq$deployString <- toupper(mergedImgUSeq$deployString)
 mergedImgUSeq$season <- toupper(mergedImgUSeq$season)
-# filter out unique sequence IDsdes
-designMat <- expand.grid(nobs=0,class=c("deer", "furbearer"), deployString=deployStrings)
-designMatbinFur <- expand.grid(nobs=0,class=c("deer", "otherFurbearer", "nonObScavenger"), deployString=deployStrings)
-designMat <- as.data.frame(designMat)
-designMat2 <- as.data.frame(designMat2)
-designMat$deployString <- as.character(designMat$deployString)
-designMat2$deployString <-as.character(designMat2$deployString)
-designMat$class <- as.character(designMat$class)
-designMat2$class <- as.character(designMat2$class)
-mergedImgUSeq2 <- mergedImgUSeq %>% group_by(deployString,class) %>% filter(!duplicated(sequenceID))
-# expand grid on class and deployString
-mergedImgUSeq2<-data.frame(count=mergedImgDat$numInds)
-designMat2$sid <- ""
-designMat2$season <- ""
-designMat2$cid <- ""
-for(i in 1:nrow(designMat2)){
-  deployString <- designMat2[i,]$deployString
-  class <- designMat2[i,]$class
-  if(deployString %in% mergedImgUSeq$deployString){
-  designMat2[i,]$nobs <- nrow(mergedImgUSeq[which(mergedImgUSeq$deployString==deployString & mergedImgUSeq$class==class),])
-  }
-  designMat2[i,]$season <- strsplit(designMat2[i,]$deployString,"-")[[1]][1]
-  designMat2[i,]$sid <- strsplit(designMat2[i,]$deployString,"-")[[1]][2]
-  designMat2[i,]$cid <- strsplit(designMat2[i,]$deployString,"-")[[1]][3]
-}
-designMat2$camAngle <- 0
-designMat2$camHeight <- 0
-designMat2$numHours <- 0
-designMat2$bearing  <- 0
-designMat2$wildDeerDens <- 0
-designMat2$propForest1k <- 0  
-designMat2$propForest3k<- 0 
-designMat2$propForest5k <- 0
-designMat2$numAdults <- 0
-designMat2$wildDeerDens <- 0
-designMat2$sizeSqKM <- 0
-designMat2$type <- ""
-designMat2$facilitySizeSqMi <- 0
-designMat2$lsm_l_ai_1k <- 0
-designMat2$lsm_l_ai_3k <- 0
-designMat2$lsm_l_ai_5k <- 0
-designMat2$contactSeen <- 0
+imgDatUSeqS <- imgDatUSeq %>% filter(season == "S")
+imgDatUSeqInSamp <- imgDatUSeqS %>% filter(inSamplePeriod==TRUE)
 
-# create blank design matrix
+
+# this is the table for summer analysis
+
+write.table(imgDatUSeqInSamp, "./data/inSampSummerDF")
+```
+```{r}
+# get summer deployStrings
+deployStrings <- sites.m %>% filter(season=="S") %>% dplyr::select(deployString) %>% filter(!duplicated(deployString),)
+deployStrings <- c(deployStrings$deployString) # only want a vector
+
+# make design matrix of each class and deploystring of interest
+designMat <- as.data.frame(expand.grid(nobs=0,class=c("deer", "furbearer"), deployString=as.character(deployStrings)))
 designMat$camAngle <- 0
 designMat$camHeight <- 0
 designMat$numHours <- 0
@@ -771,8 +703,14 @@ designMat$sid <- ""
 designMat$spcs <- ""
 designMat$season <- ""
 designMat$cam <- ""
-designMat <- as.data.frame(designMat)
-mergedImgUSeq <- mergedImgUSeq[-c(which(mergedImgUSeq$class=="vague ID")),]
+classImg <- mergedImgUSeq[-c(which(mergedImgUSeq$class=="vague ID")),]
+designMat$deployString <- as.character(designMat$deployString)
+
+designMat$class <- as.character(designMat$class)
+
+mergedImgUSeq <- imgDatUSeqInSamp %>% group_by(deployString,class) %>% summarise(n=n())
+
+
 for(j in 1:nrow(mergedImgUSeq)){
     depString<-mergedImgUSeq[j,]$deployString
     currClass <-mergedImgUSeq[j,]$class
@@ -799,15 +737,20 @@ for(j in 1:nrow(mergedImgUSeq)){
       designMatSub$deployString <- mergedImgUSeq[j,]$deployString
       designMat<- designMat[-c(which(designMat$deployString == depString)),]
       designMat <- rbind(designMat, designMatSub)
-    }
-designMat2$sid <- ""
-for(i in 1:nrow(designMat2)){
-season<-strsplit(designMat2[i,]$deployString, "-")[[1]][1]
-site<-strsplit(designMat2[i,]$deployString, "-")[[1]][2]
-cam<-strsplit(designMat2[i,]$deployString, "-")[[1]][3]
-designMat2[i,]$season <- season
-designMat2[i,]$sid <- site
-designMat2[i,]$cid <- cam
+}
+# this converts from factor to character
+depStrings <- as.character(designMat$deployString)
+designMat$deployString <- depStrings
+c<-as.character(designMat$class)
+designMat$class <- c
+# split to get sid cam
+for(i in 1:nrow(designMat)){
+season<-strsplit(designMat[i,]$deployString, "-")[[1]][1]
+site<-strsplit(designMat[i,]$deployString, "-")[[1]][2]
+cam<-strsplit(designMat[i,]$deployString, "-")[[1]][3]
+designMat[i,]$season <- season
+designMat[i,]$sid <- site
+designMat[i,]$cid <- cam
 }
 
 
@@ -873,7 +816,7 @@ if(designMat2[i,]$deployString %in% camDat$deployString){
 write.table(designMat,"./data/designMat")
 write.table(designMat2,"./data/designMat2")
 designMat2<-read.table("./data/designMat2")
-designMat<-read.table("./data/designMat")
+designMat2<-read.table("./data/designMat")
 designMat <- designMat[-c(which(designMat$deployString %in% feederDeploys)),]
 designMatS<-read.table("./data/designMat")
 
@@ -1121,7 +1064,7 @@ designMatD$camEffort.sc <- scale(designMatD$camEffort)[,1]
 designMatF$camEffort.sc <- scale(designMatF$camEffort)[,1]
 designMatPlotor$camEffort.sc <- scale(designMatPlotor$camEffort)[,1]
 # these tables contain scaled and unscaled versions of covariates
-#write.table(designMatF,"./data/designMatF") # save tables
+#read.table(designMatF,"./data/designMatF") # save tables
 # write.table(designMatD,"./data/designMatD") # save tables
 # write.table(designMatPlotor,"./data/designMatPlotor") # save tables
 
@@ -1202,7 +1145,7 @@ designMat[which(designMat$deployString=="S-S04-A04"),]$numHours <- 17.41
 
 
 # use this to get the rate by site
-siteSummaryObs<- designMat2S %>% group_by(deployString, sid, class) %>% summarise(encounterRate = nobs/numHours, ".groups" = "drop") %>% pivot_wider(id_cols = "sid")
+siteSummaryObs<- imgDatUSeq %>% filter(season=='S') %>% group_by(deployString, sid, class) %>% summarise(encounterRate = nobs/numHours, ".groups" = "drop") %>% pivot_wider(id_cols = "site")
 
 siteSummaryObs <- siteSummaryObs %>% pivot_wider(id_cols = sid, names_from=class, values_from=avgEncRate)
 
@@ -1217,6 +1160,9 @@ write.table(siteSummaryObs,"./data/siteSummary", sep=",")
 ```
 
 ```{r GLM}
+
+
+
 
 designMatS$class.fac <- as.factor(designMatS$class)
 designMat <- designMat %>% mutate(captiveDeerDens = (numAdults/facilitySizeSqMi) * (1/(2.59*10^6)))
@@ -1240,6 +1186,31 @@ designMat2SD <- designMat2S %>% filter(class=="deer")
 
 designMat3F <- designMat2SF %>% drop_na()
 designMat3D <- designMat2SD[1:174,]
+
+
+# remove malfunctioning cameras; update number of active hours 3/30
+
+designMatF <- designMatF %>% filter(! deployString %in% feeders)
+designMatD <- designMatD %>% filter(! deployString %in% feeders)
+
+designMatF <- designMatF %>% filter(! deployString %in% "S-S03-A04")
+designMatD <- designMatD %>% filter(! deployString %in% "S-S03-A04")
+
+designMatF[which(designMatF$deployString=="S-S01-A16"),]$numHours <- 218
+designMatF[which(designMatF$deployString=="S-S04-A80"),]$numHours <- 340
+designMatF[which(designMatF$deployString=="S-S04-A04"),]$numHours <- 17.41
+
+
+designMatD[which(designMatD$deployString=="S-S01-A16"),]$numHours <- 218
+designMatD[which(designMatD$deployString=="S-S04-A80"),]$numHours <- 340
+designMatD[which(designMatD$deployString=="S-S04-A04"),]$numHours <- 17.41
+
+designMatD[which(designMatD$deployString=="S-S02-A15"),]$numHours <- 50.664
+designMatF[which(designMatF$deployString=="S-S02-A15"),]$numHours <- 50.664
+
+designMatF <- designMatF %>% filter(! deployString %in% "S-S07-A95")
+designMatD <- designMatD %>% filter(! deployString %in% "S-S07-A95")
+
 ```
 
 ```{r filter to summer season}
@@ -1249,15 +1220,14 @@ designMatPlotor <- designMatPlotor %>% filter(season=='S')
 ```
 
 ```{r models for deer}
-nbModD.1<-glmer.nb(nobs ~ camHeight.sc + propAg3k.sc + numHours.sc + (1|sid),data=designMatD)
+nbModD.1<-glmer.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + numCam.sc + numHours.sc + I(lc.fac==41) + I(lc.fac==81) + (1|sid), data=designMatD)
 summary(nbModD.1)
 nbModD.2<-glmer.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + lsm_l_ai_5k.sc + numHours.sc +(1|sid),data=designMatD)
 summary(nbModD.2)
 nbModD.3<-glmer.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + lsm_l_ai_5k.sc + numHours.sc + camEffort.sc + (1|sid),data=designMatD)
 summary(nbModD.3)
-nbModD.4<-glm.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + lsm_l_ai_5k.sc + numHours.sc + propAg5k.sc + camEffort.sc,data=designMatD)
+nbModD.4<-glm.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + numHours.sc + propAg5k.sc + camEffort.sc,data=designMatD)
 summary(nbModD.4)
-performance::check_model(nbModD.4)
 
 nbModD.5<-glm.nb(nobs ~ camHeight.sc + lsm_l_ai_5k.sc + numHours.sc + propAg5k.sc + camEffort.sc,data=designMatD)
 summary(nbModD.5)
@@ -1265,68 +1235,65 @@ summary(nbModD.5)
 
 nbModD.6<-glm.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + numHours.sc + propAg5k.sc + camEffort.sc,data=designMatD)
 summary(nbModD.6)
-performance::check_model(nbModD.6)
-summary(nbModD.6)
 
 nbModD.7<-glm.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + numHours.sc + propAg5k.sc,data=designMatD)
-performance::check_model(nbModD.7)
 
 nbModD.forest<-glm.nb(nobs ~ camHeight.sc + propForest1k.sc+ lsm_l_shdi_5k.sc + numHours.sc + propAg5k.sc,data=designMatD)
-performance::check_model(nbModD.forest)
+
 nbModD.forest2<-glm.nb(nobs ~ camHeight.sc + propForest1k.sc + lsm_l_shdi_5k.sc + numHours.sc + propAg3k.sc,data=designMatD)
-performance::check_model(nbModD.forest)
 
-nbModD.forestDev<-glm.nb(nobs ~ camHeight.sc + propForest1k.sc+ lsm_l_shdi_5k.sc + numHours.sc + propForest1k.sc:lsm_l_ai_5k + propAg5k.sc,data=designMatD)
+nbModD.forestDev<-glm.nb(nobs ~ camHeight.sc + propAg5k.sc + I(lc.fac=="41") + I(lc.fac=="81") + lsm_l_shdi_5k.sc + numHours.sc,data=designMatD)
 summary(nbModD.forestDev)
-performance::check_model(nbModD.forestDev)
 
-nbModD.forest.effort<-glm.nb(nobs ~ camHeight.sc + propForest1k.sc+ lsm_l_shdi_5k.sc + propAg5k.sc + numCam.sc + numHours.sc,data=designMatD)
+nbModD.forest.effort<-glm.nb(nobs ~ camHeight.sc + lsm_l_shdi_5k.sc + propAg5k.sc + numCam.sc + numHours.sc,data=designMatD)
+AIC(nbModD.4,nbModD.5,nbModD.6,nbModD.7,nbModD.forest,nbModD.forestDev,nbModD.forest.effort)
+summary(nbModD.forest)
 
+
+# print tab model
+tab_model(nbModD.1, pred.labels = c("Intercept", "Camera Height", "Shannon's Diversity Index (5km)", "Number of Cameras", "Number of Hours", "Camera Location (41)", "Camera Location (81)"), title="Regression Results for Wild WTD", transform = NULL,file="./data/regression-deer.html")
+# save to png
+webshot("./data/regression-deer.html", "./data/regression-deer.png")
 
 ```
-
 
 ```{r models for furbearers}
 
-nbModF.1.shdi<-glm.nb(nobs ~ numCam.sc + lsm_l_shdi_5k.sc + propAg3k.sc + numHours.sc,data=designMatF)
-nbModF.1.shdi.height<-glm.nb(nobs ~ numCam.sc + camHeight.sc + lsm_l_shdi_5k.sc + propAg3k.sc+ numHours.sc,data=designMatF)
-nbModF.1.ai<-glm.nb(nobs ~ numCam.sc + camHeight.sc + lsm_l_shdi_5k.sc + propAg3k.sc + numHours.sc,data=designMatF) # seem to respond to agriculture at 3km scale
-performance::check_model(nbModF.1.ai)
-avPlots(nbModF.1.ai)
+# TOP MODEL
+nbModF.1.shdi<-glm.nb(nobs ~ numCam.sc + I(lc.fac==81) + lsm_l_shdi_5k.sc + propAg3k.sc + numHours.sc,data=designMatF)
 
-nbModF.ai.5k<-glm.nb(nobs ~ lsm_l_ai_5k.sc + propAg3k.sc+ numHours.sc,data=designMatF)
-AIC(nbModF.1.shdi,nbModF.ai.5k)
+# try with random effects
+nbModF.1.shdi.re<-glmer.nb(nobs ~ numCam.sc + propAg3k.sc + numHours.sc + (1|sid),data=designMatF)
 
-nbModF.shdi.5k<-glm.nb(nobs ~ lsm_l_shdi_5k.sc + propAg3k.sc+ numHours.sc,data=designMatF)
-AIC(nbModF.1.shdi,nbModF.ai.5k,nbModF.shdi.5k)
-nbModF.shdi.5k.poly<-glm.nb(nobs ~propAg3k.sc+ numHours.sc,data=designMatF)
-AIC(nbModF.1.shdi,nbModF.ai.5k,nbModF.shdi.5k,nbModF.shdi.5k.poly)
-nbModF.ai.5k.poly.3<-glm.nb(nobs ~ poly(lsm_l_ai_5k.sc,2) + propAg3k.sc+ numHours.sc,data=designMatF)
-AIC(nbModF.1.shdi,nbModF.ai.5k,nbModF.shdi.5k,nbModF.shdi.5k.poly)
+# responded most to propAg at 3km scale
 
-nbModF.shdi.5k.int<-glm.nb(nobs ~ propAg3k.sc+ numHours.sc,data=designMatF)
-AIC(nbModF.1.shdi,nbModF.1.shdi.forest ,nbModF.ai.5k,nbModF.shdi.5k,nbModF.shdi.5k.int)
-performance::check_model(nbModF.shdi.5k.int)
-crPlots(nbModF.shdi.5k.int)
+tab_model(nbModF.1.shdi.re, pred.labels = c("Intercept", "Number of Cameras", "Proportion Agriculture (3km)", "Number of Hours"), title="Regression Results for Scavengers", transform = NULL,file="./data/regression-scavengers.html")
+# save to png
+webshot("./data/regression-scavengers.html", "./data/regression-scavengers.png")
 
-performance::check_model(nbModF.1.shdi.height)
-performance::check_model(nbModF.1.shdi)
-
-sum(residuals(nbModF.1.shdi.height))
-sum(residuals(nbModF.1.shdi))
 ```
-```{r}
+```{r create plots for types of landscape sampled}
+lcType.dat <- data.frame(val = unique(sort(designMatD$val)), type=c("Developed, Open Space (21)", "Developed, Low Intensity (22)", "Developed Medium Intensity (23)", "Barren (31)", "Deciduous Forest (41)", "Evergreen Forest (42)", "Mixed Forest (43)", "Grassland/Herbaceous (71)", "Pasture/Hay (81)", "Cultivated Crops (82)", "Woody Wetlands (90)", "Emergent Herbaceous Wetlands (95)"))
+write.table(lcType.dat, "./data/lcTypeDat") # this holds the df for all of the data types seen
 
-# ggplot(data = designMatSF,
-#       aes(x = (camHeight + wildDeerDens +  captiveDeerDens + offset(log(numHours)) + lsm_l_ai_1k + lsm_l_ai_3k + lsm_l_ai_5k), y = count, color = class)) + geom_point() + geom_line(aes(y=p.nbModF))
-# 
-# ggplot(data = designMatSD,
-#       aes(x = (camHeight + wildDeerDens +  captiveDeerDens + offset(log(numHours)) + lsm_l_ai_1k + lsm_l_ai_3k + lsm_l_ai_5k),y = count, color = class)) + geom_point() + geom_line(aes(y=p.nbModD))
+lcTypetmp <- designMatD %>% dplyr::select(val)
+lcType.dat <- merge(lcType.dat, lcTypetmp, on.x=val, on.y=val) # merge
 
-# PLOT FOR prediction if desired
-# ggplot(data = designMat2SF,
-#       aes(x = (camHeight + wildDeerDens +  captiveDeerDens + log(numHours+1) + lsm_l_ai_1k + lsm_l_ai_3k + lsm_l_ai_5k + propForest1k + propForest3k + propForest5k + numCam), y = nobs, color = class)) + geom_point() + geom_line(aes(y=p.nbModF))
+
+lcTypeSummary <- lcType.dat %>% group_by(type) %>% summarise(n=n())
+description<-c()
+lcTypeSummary$description <- description
+
+ggplot(lcType.dat, aes(x=type)) + 
+  geom_bar() +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  ggtitle(label="Number of Samples of Each Cover Type Taken") + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"),
+legend.position = c(0.8, 0.87), legend.title = element_blank())
+
 ```
+
 ```{r, create GPX dataframe}
 # let's load up our GPX points
 gpx <- htmlTreeParse(file="./data/S-S09-DEP.GPX", useInternalNodes = TRUE)
@@ -1360,10 +1327,10 @@ st_transform(coords, CRS=utm)
 
 ```{r, intersect points and rast}
 lonlat<-CRS("+proj=longlat")
-# lcFencelineSF<-st_as_sf.stars(st_as_stars(lc.fenceline.rast$clipped.area))
-# proj4string(lc.fenceline.rast$clipped.area) <- CRS("+proj=longlat +datum=WGS84")
+lcFencelineSF<-st_as_sf.stars(st_as_stars(lc.fenceline.rast$clipped.area))
+proj4string(lc.fenceline.rast$clipped.area) <- CRS("+proj=longlat +datum=WGS84")
 lcFarmLonLat <- projectRaster(lc.full, crs="+proj=longlat +datum=WGS84")
-lcFarmll <- spTransform(lc.full$clipped.area, lonlat)
+lcFarmll <- st_transform(lc.full$clipped.area, lonlat)
 plot(lc.fenceline.ll$clipped.area) + 
   points(cbind(gpxDF$lon, gpxDF$lat), pch=19, col="black")
 # now can extract landscape values at the points

@@ -1,0 +1,82 @@
+---
+title: "generate-figures"
+output: html_document
+date: "2023-08-29"
+---
+
+```{r, load packages}
+library(maps)
+library("rgdal")
+library(ggplot2)
+library(ggpubr)
+```
+
+```{r generate county figures}
+
+usa.state = map_data("state")
+study.states <- c("minnesota", "wisconsin", "pennsylvania")
+study.states.sub <- subset(usa.state, region %in% study.states)
+
+tmp.df <- data.frame(study=study, region=states)
+states.df<-merge(usa.state, tmp.df, by="region")
+color = c("red", "white")
+# plot(usa.state, type="line", xaxt='n', gyaxt='n', xlab='', ylab='')
+usa_base <- ggplot(data=usa.state, mapping=aes(x=long, y=lat, group=group)) +
+  coord_fixed(1.3) +
+  geom_polygon(color="black", fill="white")
+
+usa_base + theme_void() +
+  geom_polygon(data=study.states.sub, color="black", fill=NA) +
+  geom_polygon(data=study.states.sub, aes(fill="red")) +
+  theme(legend.position="none")
+
+
+# now we can get our county level maps
+
+usa.county = map_data('county')
+mn.county = subset(usa.county, usa.county$region == "minnesota")
+# minnesota counties
+mn.counties.l <- c("stearns", "lincoln", "fillmore", "morrison", "scott", "kandiyohi")
+mn.county.study <- subset(mn.county, mn.county$subregion %in% mn.counties.l)
+mn_base <- ggplot(data=mn.county, mapping=aes(x=long, y=lat, group=group)) +
+  coord_fixed(1.3) +
+  geom_polygon(color="black", fill="white")
+
+mn_map <- mn_base + theme_void() +
+  geom_polygon(data=mn.county.study, color="black", fill=NA) +
+  geom_polygon(data=mn.county.study, aes(fill="red")) +
+  theme(legend.position="none")
+
+# wisconsin maps
+wi.county = subset(usa.county, usa.county$region == "wisconsin")
+# minnesota counties
+wi.counties.l <- c("st croix", "crawford")
+wi.county.study <- subset(wi.county, wi.county$subregion %in% wi.counties.l)
+wi_base <- ggplot(data=wi.county, mapping=aes(x=long, y=lat, group=group)) +
+  coord_fixed(1.3) +
+  geom_polygon(color="black", fill="white")
+
+wi_map <- wi_base + theme_void() +
+  geom_polygon(data=wi.county.study, color="black", fill=NA) +
+  geom_polygon(data=wi.county.study, aes(fill="red")) +
+  theme(legend.position="none") + 
+  geom_path(color="black")
+# pennsylvania maps
+pa.county = subset(usa.county, usa.county$region == "pennsylvania")
+# minnesota counties
+pa.counties.l <- c("lycoming", "franklin")
+pa.county.study <- subset(pa.county, pa.county$subregion %in% pa.counties.l)
+pa_base <- ggplot(data=pa.county, mapping=aes(x=long, y=lat, group=group)) +
+  coord_fixed(1.3) +
+  geom_path(color="black") + 
+  geom_polygon(color="black", fill="white")
+
+pa_map <- pa_base + theme_void() +
+  geom_polygon(data=pa.county.study, color="black", fill=NA) +
+  geom_polygon(data=pa.county.study, aes(fill="red")) + 
+    geom_path(color="black") +
+  theme(legend.position="none")
+
+# arrange them into a single plot
+mapsFig<-ggarrange(pa_map + wi_map + mn_map)
+```

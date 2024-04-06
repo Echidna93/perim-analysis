@@ -5,9 +5,9 @@ date: "2023-12-18"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 ```
-```{r, echo=FALSE}
+```{r, results='hide'}
 library("raster")
 library("sf")
 library("leafsync")
@@ -29,11 +29,13 @@ library(prism)
 library(terra)
 library(maps)
 library(raster)
+library(sfheaders)
 #library(rnoaa)
 library(stringr)
+library(sfheaders)
 ```
 
-```{r import files}
+```{r import files, results='hide'}
 # TODO anonymize the farmers, i.e. rename all shps and to correlate with SIDs,
 # restructure file structure
 
@@ -58,26 +60,41 @@ lsmDat2 <- read.table("./data/lsmDat")
 #write.table(lsmDat,"./data/lsmDat")
 
 pa.ext<-extent(-80.519891,-74.689516,39.7198,42.26986)
-camDatSummary<-read.table("./data/camDatSummary",header=TRUE,sep=",")
+lsmDat<-read.table("./data/lsmDat",header=TRUE,sep=",")
 #  read in shp file
 S01 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\ken-williams\\Shapefiles\\ken-williams.shp")
 # READ in SHP files for each farm
 S01 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\ken-williams\\Shapefiles\\ken-williams.shp")
 S02 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\mark-volk\\Shapefiles\\mark-volk.shp")
 S03 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\deb-holthaus\\Shapefiles\\deb-holthaus.shp")
-S04<-st_read("C:\\Users\\jackx\\Desktop\\perim-data\\Cervid-Farm\\AntlerAdventureBuffer.shp")
-S05b<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-1.shp") # will need to load up each
-S05a<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-main-2.shp")
-S05c<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-natural.shp")
-S05d<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-small.shp")
+S04<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\antler-adventures\\AntlerAdventureBuffer.shp")
+S05B<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-1.shp") # will need to load up each
+S05A<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-main-2.shp")
+S05C<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-natural.shp")
+S05D<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\Shapefiles\\scott-fier-ext-small.shp")
 S06<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gary-olson\\Shapefiles\\gary-olson.shp")
 S09 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\chad-jelinek\\Shapefiles\\chad-jelinek.shp")
 S11 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\steve-uchytil\\Shapefiles\\steve-uchytil.shp")
+
 S12 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\troy-anderson\\Shapefiles\\troy-anderson.shp")
 # PA farms; require different raster to calculate landscape
 S07<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gerald-reed\\gerald-reed.shp")
 S10 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\glenn-dice\\glenn-dice.shp")
 
+# load road shps
+
+# ROAD shps
+S01.rd <- st_read("./data/mn_road/S01/tl_2023_27145_roads.shp")
+S02.rd <- st_read("./data/mn_road/S03/tl_2023_27097_roads.shp")
+S03.rd <- st_read("./data/mn_road/S03/tl_2023_27097_roads.shp")
+S04.rd <- st_read("./data/wi_road/S04/tl_2023_55109_roads.shp")
+S05.rd <- st_read("./data/mn_road/S05/tl_2021_27081_roads.shp")
+S06.rd <- st_read("./data/mn_road/S06/tl_2023_27045_roads.shp")
+S07.rd <- st_read("./data/pa_road/S07/tl_2023_42081_roads.shp")
+S09.rd <- st_read("./data/wi_road/S09/tl_2022_55023_roads.shp")
+S10.rd <- st_read("./data/pa_road/S10/tl_2023_42055_roads.shp")
+S11.rd <- st_read("./data/mn_road/S11/tl_2023_27067_roads.shp")
+S12.rd <- st_read("./data/mn_road/S12/tl_2023_27139_roads.shp")
 # for loading the road density shp file
 
 # https://resources.gisdata.mn.gov/pub/gdrs/data/pub/us_mn_state_dot/trans_roads_mndot_tis/metadata/metadata.html
@@ -86,6 +103,56 @@ S10 <- st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\gle
 #wi_road<-st_read("C:\\Users\\jackx\\Desktop\\perim-analysis\\data\\wi_road\\WI_CensusRoads_2010\\WI_CensusRoads_2010.gdb")
 
 
+```
+```{r get pts}
+
+buffDist.pt <- 30 # 1km
+S05A<- S05A %>%
+  st_buffer(buffDist.pt)
+
+SpatialPointsDataFrame(coords=S05.pt$geometry)
+
+S05.pt <- readG("C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\troy-anderson\\S-S12-DEP.GPX")
+ptsdf <- structure(list(longitude = S05.pt$geometry %>% sapply('[', 1), latitude = S05.pt$geometry %>% sapply('[',2), .Names = c("longitude", 
+"latitude"), class = "data.frame", row.names = S05.pt$name))
+
+S05.pt <- S05.pt %>% st_transform(crs(landcoverMNWI))
+# let's load up our GPX points
+gpx <- htmlTreeParse(file="./perim-shapefiles/scott-fier/S-S05.GPX", useInternalNodes = TRUE)
+# coords <- xpathSApply(doc=gpx, path="//trkpt", fun=xmlAttrs)
+coords <- xpathSApply(doc = gpx, path = "//wpt", fun = xmlAttrs)
+x = st_sfc(st_point(c(5,5)), st_point(c(6,9)), crs = 4326)
+as(x, "Spatial")
+# need to convert to the same CRS
+
+# extract all of the lats and longs along with names
+pts.tmp<-data.frame(long=(S05.pt$geometry)  %>% st_transform(crs(landcoverMNWI)) %>% st_centroid() %>% st_transform(crs="+proj=latlong") %>% sapply('[', 1), lat=S05.pt$geometry %>% st_transform(crs(landcoverPA)) %>% st_centroid() %>% st_transform(crs="+proj=latlong") %>% sapply('[', 2),
+name = S05.pt$name)
+pts.tmp$name <- paste0("S-S04-",pts.tmp$name) # fix name maybe
+pts<-rbind(pts,pts.tmp)
+
+
+elevation <- xpathSApply(doc = gpx, path = "//wpt", fun = xmlAttrs)
+gpxXML<-xmlParse(file="C:\\Users\\jackx\\Desktop\\perim-analysis\\perim-shapefiles\\scott-fier\\S-S05.GPX", useInternalNodes = TRUE)
+coords <- xpathSApply(doc = gpx, path = "//wpt", fun = xmlAttrs)
+gpxPTS <- xmlToDataFrame(gpxXML)
+gpxDF<-data.frame(name=gpxPTS$name,
+           time=gpxPTS$time,
+           lat=coords[,1],
+           lon=coords[,2],
+           ele=gpxPTS$ele
+           )
+gpxDF$lat <- as.numeric(gpxDF$lat)
+gpxDF$lon <- as.numeric(gpxDF$lon)
+cords <- data.frame(lat=gpxDF$lat, lon=gpxDF$lon)
+st_transform(c(gpxDF$lat, gpxDF$lon), "+proj=latlon", "+init=epsg:32615")
+cords <- spTransform(cords, crs("+datum=WGS84 +init=epsg:32615"))
+coords<- SpatialPoints(cbind(gpxDF$lat,gpxDF$lon), proj4string = CRS("+proj=latlon +datum=WGS84 +units=m +no_defs"))
+st_transform(coords, CRS=utm)
+
+ydf <- structure(list(longitude = pts2$long, latitude = pts2$lat), .Names = c("longitude", 
+"latitude"), class = "data.frame", row.names = c(NA, -8L))
+xy <- ydf[,c(1,2)]
 ```
 
 ```{r crop the road density to PA, WI, MN}
@@ -115,89 +182,28 @@ road.wi.crop <- st_crop(fc, wi.ext)
 road.pa.crop <- st_crop(fc, pa.ext)
 
 # write each table delete entire raster later to save space
-write.table(road.mn.crop, "./data/road.mn.crop")
-write.table(road.wi.crop, "./data/road.wi.crop")
-write.table(road.pa.crop, "./data/road.pa.crop")
-```
-```{r transform shps}
-wiCountyShp<-st_transform(wiCountyShp, crs(wiTwnshpShp))
-wiCountyTwnshps <- st_intersection(wiCountyShp, wiTwnshpShp)
-wiTwnshpShp<-st_transform(wiTwnshpShp, crs(wiLC))
-wiCountyTwnshps <- st_transform(wiCountyTwnshps, crs(wiLC))
-study.ext<-extent(wiCountyTwnshps)
-lc.cropped<-crop(wiLC, study.ext)
-wiTwnshpShp<-st_crop(wiTwnshpShp, study.ext)
-wiTwnshpShp <- wiTwnshpShp %>% mutate(uid = paste0(TWP,"-",RNG,"-", DIR_ALPHA))
-wiTwnshpShpSpat <- as(wiTwnshpShp, "Spatial")
-lcTypes<-unique(lc.cropped$cls_desc_1)
-lcTypes <- c(c("uid","nCells"),lcTypes)
-lcDat = data.frame(matrix(0,nrow = nrow(wiTwnshpShp), ncol = (length(lcTypes)))) 
-names(lcDat) <- lcTypes
-lcDat['uid'] <- unique(wiTwnshpShp$uid)
-for(i in 1:nrow(wiTwnshpShpSpat)){
-  lcDat[i,'nCells']<-ncell(crop(lc.cropped, extent(bbox(wiTwnshpShpSpat[i,])))) # denominator
-  lcTwnshp <- extract(lc.cropped, extent(bbox(wiTwnshpShpSpat[i,])))
-  for(j in 1:length(lcTwnshp)){
-      lcDat[i,as.character(lcTwnshp[j])] = lcDat[i,as.character(lcTwnshp[j])] + 1
-    }
-}
-
-write.table(lcDat, "./data/lcDat")
-lcDat2 <- read.table("./data/lcDat")
-
-  farm<-st_transform(get(farms[j]), crs(landcover))
-  farm.extent<-extent(farm)
-  farm.extent<-extend(farm.extent, buffDistLrg*2)
-  #landcoverMNWI<-projectExtent(landcoverMNWI, crs(s01))
-  # crop our lc dataset to the buffered extent
-  lc.cropped<-crop(landcover, farm.extent) %>%
-  st_as_stars() %>%
-  st_as_sf()
-farmBuffSml<-farm %>%
-  st_buffer(buffDistSml) # buffer by 30m
-
-farmBuffMed<-farm %>%
-  st_buffer(buffDistMed) # buffer by 30m
-
-farmBuffLrg<-farm %>%
-  st_buffer(buffDistLrg) # buffer by 30m
-
-# subtract the buffered farm from the original shp
-# farm.fenceline.buff<-st_difference(farmBuffSml, farm.full)
-
-# intersect our fencline and our cropped landcover tif
-lcFullSml<-st_intersection(lc.cropped, farmBuffSml)
-lcFullMed<-st_intersection(lc.cropped, farmBuffMed)
-lcFullLrg<-st_intersection(lc.cropped, farmBuffLrg)
-# lcFullSml <- st_intersection(lc.cropped, lcFenclineSml)
-# lcFullMed <- st_intersection(lc.cropped, lcFenclineMed)
-# lcFullLrg <- st_intersection(lc.cropped, lcFenclineLrg)
-# convert back to raster so we can use sampleStratified
-lcFullSmlRast<-st_rasterize(lcFullSml)
-lcFullMedRast<-st_rasterize(lcFullMed)
-lcFullLrgRast<-st_rasterize(lcFullLrg)
-
-propForestSml <- 0
-propForestMed <- 0
-propForestLrg <- 0
-
-wiTwnshpShp
+# write.table(road.mn.crop, "./data/road.mn.crop")
+# write.table(road.wi.crop, "./data/road.wi.crop")
+# write.table(road.pa.crop, "./data/road.pa.crop")
 
 ```
 ```{r calculate}
-camDatSummary$propAg1k<-0
-camDatSummary$propAg3k<-0
-camDatSummary$propAg5k<-0
-camDatSummary$propDev1k<-0
-camDatSummary$propDev3k<-0
-camDatSummary$propDev5k<-0
+lsmDat$propAg1k<-0
+lsmDat$propAg3k<-0
+lsmDat$propAg5k<-0
+lsmDat$propDev1k<-0
+lsmDat$propDev3k<-0
+lsmDat$propDev5k<-0
 
 
 #lsmDat <- data.frame(sid=farms,lsm_l_ai_1k=0,lsm_l_ai_3k=0,lsm_l_ai_5k=0)
 lsmDat$lsm_l_shdi_1k <- 0
 lsmDat$lsm_l_shdi_3k <- 0
 lsmDat$lsm_l_shdi_5k <- 0# grab the extent of our farm
-farms <- c("S01","S02", "S03", "S04", "S05a", "S05b", "S05c", "S05d", "S06", "S07", "S09", "S10", "S11", "S12")
+lsmDat$propForest1k<-0
+lsmDat$propForest3k<-0
+lsmDat$propForest5k<-0
+farms <- c("S01","S02", "S03", "S04", "S05A", "S05B", "S05C", "S05D", "S06", "S07", "S09", "S10", "S11", "S12")
 for(j in 1:length(farms)){
   if(farms[j] == "S07" || farms[j] == "S10"){
     landcover <- landcoverPA
@@ -225,14 +231,15 @@ farmBuffLrg<-farm %>%
   st_buffer(buffDistLrg) # buffer by 30m
 
 # subtract the buffered farm from the original shp
-# farm.fenceline.buff<-st_difference(farmBuffSml, farm.full)
+lcFullSml<-st_difference(farmBuffSml,sfheaders::sf_remove_holes(farm))
+lcFullMed<-st_difference(farmBuffMed, sfheaders::sf_remove_holes(farm))
+lcFullLrg<-st_difference(farmBuffLrg,sfheaders::sf_remove_holes(farm))
 
-# intersect our fencline and our cropped landcover tif
-lcFullSml<-st_intersection(lc.cropped, farmBuffSml)
-lcFullMed<-st_intersection(lc.cropped, farmBuffMed)
-lcFullLrg<-st_intersection(lc.cropped, farmBuffLrg)
+# intersect buffered farm and our cropped landcover tif
+lcFullSml<-st_intersection(lc.cropped,lcFullSml) 
+lcFullMed<-st_intersection(lc.cropped, lcFullMed)
+lcFullLrg<-st_intersection(lc.cropped, lcFullLrg)
 
-# convert back to raster so we can use sampleStratified
 lcFullSmlRast<-st_rasterize(lcFullSml)
 lcFullMedRast<-st_rasterize(lcFullMed)
 lcFullLrgRast<-st_rasterize(lcFullLrg)
@@ -243,127 +250,173 @@ lcFullLrgRast<-st_rasterize((lcFullLrg %>% dplyr::select(names(lcFullLrg)[1], na
 
 # calculate landscape metric lsm_l_ai (aggregation index)
 # disaggregation increases with index 100 most disaggregated
-lsm_l_ai_1k<-lsm_l_ai(lcFullSmlRast)
-lsm_l_ai_3k<-lsm_l_ai(lcFullMedRast)
-lsm_l_ai_5k<-lsm_l_ai(lcFullLrgRast)
-lsm_l_shdi_1k <- lsm_l_shdi(lcFullSmlRast)
-lsm_l_shdi_3k <- lsm_l_shdi(lcFullMedRast)
-lsm_l_shdi_5k <- lsm_l_shdi(lcFullLrgRast)
+# lsm_l_ai_1k<-lsm_l_ai(lcFullSmlRast)
+# lsm_l_ai_3k<-lsm_l_ai(lcFullMedRast)
+# lsm_l_ai_5k<-lsm_l_ai(lcFullLrgRast)
+# lsm_l_shdi_1k <- lsm_l_shdi(lcFullSmlRast)
+# lsm_l_shdi_3k <- lsm_l_shdi(lcFullMedRast)
+# lsm_l_shdi_5k <- lsm_l_shdi(lcFullLrgRast)
 # lsmDat[j,]$lsm_l_ai_1k <- lsm_l_ai_1k$value
 # lsmDat[j,]$lsm_l_ai_3k <- lsm_l_ai_3k$value
 # lsmDat[j,]$lsm_l_ai_5k <- lsm_l_ai_5k$value
-lsmDat[j,]$lsm_l_shdi_1k <- lsm_l_shdi_1k$value
-lsmDat[j,]$lsm_l_shdi_3k <- lsm_l_shdi_3k$value
-lsmDat[j,]$lsm_l_shdi_5k <- lsm_l_shdi_5k$value
+# lsmDat[j,]$lsm_l_shdi_1k <- lsm_l_shdi_1k$value
+# lsmDat[j,]$lsm_l_shdi_3k <- lsm_l_shdi_3k$value
+# lsmDat[j,]$lsm_l_shdi_5k <- lsm_l_shdi_5k$value
 
 
-# 
-# propForestSml <- 0
-# propForestMed <- 0
-# propForestLrg <- 0
-# propAgSml <- 0
-# propAgMed <- 0
-# propAgLrg <- 0
-# propDevSml <- 0
-# propDevMed <- 0
-# propDevLrg <- 0
-# developed <- c(21,22,23,24)
-# ag <- c(81, 81) # need to recalculate :(
-# forest <- c(41,43,1)
-# for(i in 1:nrow(lcFullSml)){
-#   if(farms[j] == "S07" || farms[j] == "S10"){
-#     if(lcFullSml[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-#       propForestSml <- propForestSml + 1
-#     }
-#     if(lcFullSml[i,]$nlcd.landcover.PA %in% developed){
-#       propDevSml <- propDevSml + 1
-#     }
-#     if(lcFullSml[i,]$nlcd.landcover.PA %in% ag){
-#       propAgSml <- propAgSml + 1
-#     }
-#   }else{
-#     if(lcFullSml[i,]$clipped.area %in% seq(41,43,1)){
-#     propForestSml <- propForestSml + 1
-#     }
-#     if(lcFullSml[i,]$clipped.area %in% developed){
-#       propDevSml <- propDevSml + 1
-#     }
-#     if(lcFullSml[i,]$clipped.area %in% ag){
-#       propAgSml <- propAgSml + 1
-#     }
-#     }
-# 
-# }
-# propForestSml <- propForestSml/nrow(lcFullSml)
-# propDevSml <- propDevSml/nrow(lcFullSml)
-# propAgSml <- propAgSml/nrow(lcFullSml)
-# for(i in 1:nrow(lcFullMed)){
-#   if(farms[j] == "S07" || farms[j] == "S10"){
-#     if(lcFullMed[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-#       propForestMed <- propForestMed + 1
-#     }
-#     if(lcFullMed[i,]$nlcd.landcover.PA %in% developed){
-#       propDevMed <- propDevMed + 1
-#     }
-#     if(lcFullMed[i,]$nlcd.landcover.PA %in% ag){
-#       propAgMed <- propAgMed + 1
-#     }
-#   }else{
-#     if(lcFullMed[i,]$clipped.area %in% seq(41,43,1)){
-#     propForestMed <- propForestMed + 1
-#     }
-#     if(lcFullMed[i,]$clipped.area %in% developed){
-#       propDevMed <- propDevMed + 1
-#     }
-#     if(lcFullMed[i,]$clipped.area %in% ag){
-#       propAgMed <- propAgMed + 1
-#     }
-#     }
-# 
-# }
-# propForestMed <- propForestMed/nrow(lcFullMed)
-# propDevMed <- propDevMed/nrow(lcFullMed)
-# propAgMed <- propAgMed/nrow(lcFullMed)
-# for(i in 1:nrow(lcFullLrg)){
-#   if(farms[j] == "S07" || farms[j] == "S10"){
-#     if(lcFullLrg[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
-#       propForestLrg <- propForestLrg + 1
-#     }
-#     if(lcFullLrg[i,]$nlcd.landcover.PA %in% developed){
-#       propDevLrg <- propDevLrg + 1
-#     }
-#     if(lcFullLrg[i,]$nlcd.landcover.PA %in% ag){
-#       propAgLrg <- propAgLrg + 1
-#     }
-#   }else{
-#     if(lcFullLrg[i,]$clipped.area %in% seq(41,43,1)){
-#     propForestLrg <- propForestLrg + 1
-#     }
-#     if(lcFullLrg[i,]$clipped.area %in% developed){
-#       propDevLrg <- propDevLrg + 1
-#     }
-#     if(lcFullLrg[i,]$clipped.area %in% ag){
-#       propAgLrg <- propAgLrg + 1
-#     }
-#     }
-# 
-# }
-# propForestLrg <- propForestLrg/nrow(lcFullLrg)
+
+propForestSml <- 0
+propForestMed <- 0
+propForestLrg <- 0
+propAgSml <- 0
+propAgMed <- 0
+propAgLrg <- 0
+propDevSml <- 0
+propDevMed <- 0
+propDevLrg <- 0
+developed <- c(21,22,23,24)
+ag <- c(81, 82) # need to recalculate :(
+forest <- c(41,43,1)
+for(i in 1:nrow(lcFullSml)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullSml[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestSml <- propForestSml + 1
+    }
+    # if(lcFullSml[i,]$nlcd.landcover.PA %in% developed){
+    #   propDevSml <- propDevSml + 1
+    # }
+    # if(lcFullSml[i,]$nlcd.landcover.PA %in% ag){
+    #   propAgSml <- propAgSml + 1
+    # }
+  }else{
+    if(lcFullSml[i,]$clipped.area %in% seq(41,43,1)){
+    propForestSml <- propForestSml + 1
+    }
+    # if(lcFullSml[i,]$clipped.area %in% developed){
+    #   propDevSml <- propDevSml + 1
+    # }
+    # if(lcFullSml[i,]$clipped.area %in% ag){
+    #   propAgSml <- propAgSml + 1
+    # }
+  }
+
+}
+propForestSml <- propForestSml/nrow(lcFullSml)
+#propDevSml <- propDevSml/nrow(lcFullSml)
+#propAgSml <- propAgSml/nrow(lcFullSml)
+for(i in 1:nrow(lcFullMed)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullMed[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestMed <- propForestMed + 1
+    }
+    # if(lcFullMed[i,]$nlcd.landcover.PA %in% developed){
+    #   propDevMed <- propDevMed + 1
+    # }
+    # if(lcFullMed[i,]$nlcd.landcover.PA %in% ag){
+    #   propAgMed <- propAgMed + 1
+    # }
+  }else{
+    if(lcFullMed[i,]$clipped.area %in% seq(41,43,1)){
+    propForestMed <- propForestMed + 1
+    }
+    # if(lcFullMed[i,]$clipped.area %in% developed){
+    #   propDevMed <- propDevMed + 1
+    # }
+    # if(lcFullMed[i,]$clipped.area %in% ag){
+    #   propAgMed <- propAgMed + 1
+    # }
+    }
+
+}
+propForestMed <- propForestMed/nrow(lcFullMed)
+#propDevMed <- propDevMed/nrow(lcFullMed)
+#propAgMed <- propAgMed/nrow(lcFullMed)
+for(i in 1:nrow(lcFullLrg)){
+  if(farms[j] == "S07" || farms[j] == "S10"){
+    if(lcFullLrg[i,]$nlcd.landcover.PA %in% seq(41,43,1)){
+      propForestLrg <- propForestLrg + 1
+    }
+    # if(lcFullLrg[i,]$nlcd.landcover.PA %in% developed){
+    #   propDevLrg <- propDevLrg + 1
+    # }
+    # if(lcFullLrg[i,]$nlcd.landcover.PA %in% ag){
+    #   propAgLrg <- propAgLrg + 1
+    # }
+  }else{
+    if(lcFullLrg[i,]$clipped.area %in% seq(41,43,1)){
+    propForestLrg <- propForestLrg + 1
+    }
+    # if(lcFullLrg[i,]$clipped.area %in% developed){
+    #   propDevLrg <- propDevLrg + 1
+    # }
+    # if(lcFullLrg[i,]$clipped.area %in% ag){
+    #   propAgLrg <- propAgLrg + 1
+    # }
+    }
+
+}
+propForestLrg <- propForestLrg/nrow(lcFullLrg)
 # propDevLrg <- propDevLrg/nrow(lcFullLrg)
 # propAgLrg <- propAgLrg/nrow(lcFullLrg)
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propAg1k <- propAgSml
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propAg3k <- propAgMed
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propAg5k <- propAgLrg
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propDev1k <- propDevSml
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propDev3k <- propDevMed
-# camDatSummary[which(camDatSummary$sid == farms[j]),]$propDev5k <- propDevLrg
-# # camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest1k <- propForestSml
-# # camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest3k <- propForestMed
-# # camDatSummary[which(camDatSummary$sid == farms[j]),]$propForest5k <- propForestLrg
+# lsmDat[which(lsmDat$sid == farms[j]),]$propAg1k <- propAgSml
+# lsmDat[which(lsmDat$sid == farms[j]),]$propAg3k <- propAgMed
+# lsmDat[which(lsmDat$sid == farms[j]),]$propAg5k <- propAgLrg
+# lsmDat[which(lsmDat$sid == farms[j]),]$propDev1k <- propDevSml
+# lsmDat[which(lsmDat$sid == farms[j]),]$propDev3k <- propDevMed
+# lsmDat[which(lsmDat$sid == farms[j]),]$propDev5k <- propDevLrg
+lsmDat[which(lsmDat$sid == farms[j]),]$propForest1k <- propForestSml
+lsmDat[which(lsmDat$sid == farms[j]),]$propForest3k <- propForestMed
+lsmDat[which(lsmDat$sid == farms[j]),]$propForest5k <- propForestLrg
 }
 
-#camDatSummary<-read.table("./data/lsmDat")
+#lsmDat<-read.table("./data/lsmDat")
 # buffer the extent so that we don't cut off the farm
 # buffer this by twice the largest buffer extent
-camDatSummary
+write.table(lsmDat,"./data/lsmDat")
 ```
+```{r calculate per site road density}
+roadDensDat <- data.frame(sid=farms, roadDens1km=0, roadDens3km=0, roadDens5km=0)
+sf_use_s2(TRUE)
+for(j in 1:length(farms)){  
+
+  if(grepl('S05', farms[j])){
+    road.shp <- get(paste0("S05", ".", "rd"))
+  }else{
+    road.shp <- get(paste0(farms[j], ".", "rd"))
+  }
+  farm<-st_transform(get(farms[j]), crs(road.shp)) # transform
+  farm<-st_make_valid(farm) # make sure that all edges are correct; quick check
+  farmBuffSml<-farm %>%
+    st_buffer(buffDistSml)
+  
+  farmBuffMed<-farm %>%
+    st_buffer(buffDistMed) # buffer by 30m
+  
+  farmBuffLrg<-farm %>%
+    st_buffer(buffDistLrg) # buffer by 30m
+  
+  # subtract the buffered farm from the original shp
+  # farm.fenceline.buff<-st_difference(farmBuffSml, farm.full)
+  lcFullSml<-st_difference(farmBuffSml,sfheaders::sf_remove_holes(farm))
+  lcFullMed<-st_difference(farmBuffMed, sfheaders::sf_remove_holes(farm))
+  lcFullLrg<-st_difference(farmBuffLrg,sfheaders::sf_remove_holes(farm))
+  # intersect our fencline and our cropped landcover tif
+
+  lcFullSml<-st_intersection(road.shp, farmBuffSml)
+  lcFullMed<-st_intersection(road.shp, farmBuffMed)
+  lcFullLrg<-st_intersection(road.shp, farmBuffLrg)
+  roadDensDat[j,]$roadDens1km<-sum(st_length(lcFullSml$geometry))/st_area(farmBuffSml)
+  roadDensDat[j,]$roadDens3km<-sum(st_length(lcFullMed$geometry))/st_area(farmBuffMed)
+  roadDensDat[j,]$roadDens5km<-sum(st_length(lcFullLrg$geometry))/st_area(farmBuffLrg)
+}
+#write.table(roadDensDat,"./data/roadDensDat")
+```
+
+```{r get the pts intersected with rast}
+
+pts <-sf.dat[which(sf.dat$sid %in% c("S07","S10")),]
+d2<-data.frame(x=sapply(pts1$geometry,'[', 1),y=sapply(pts1$geometry,'[', 2),sid=pts1$sid,uid=pts1$uid)
+coordinates(d2) <- ~x + y
+d2$val <- raster::extract(landcoverPA,d2)
+```
+
